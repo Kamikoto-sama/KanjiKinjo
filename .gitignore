@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+.ruff_cache/
+.DS_Store
+*.pyc
+*.apkg
+*.colpkg
+data/sources/
+data/dictionary/
+tsconfig.tsbuildinfo
+*.log

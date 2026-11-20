@@ -1,0 +1,27 @@
+{
+  "name": "kanjigraph",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "test:client": "node --test tests/client_snapshot.mjs",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "dexie": "4.2.1",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "react-router-dom": "7.13.2"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "5.1.2",
+    "prettier": "3.10.1",
+    "typescript": "5.9.3",
+    "vite": "7.3.1",
+    "vite-plugin-pwa": "1.2.0"
+  }
+}

@@ -1,0 +1,5 @@
+anki==26.9.4
+fastapi==0.162.7
+python-multipart==0.0.20
+uvicorn==0.54.0
+zstandard==0.25.0
