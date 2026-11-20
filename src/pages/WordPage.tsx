@@ -4,8 +4,9 @@ import {
   useNavigate,
   useSearchParams,
 } from "react-router-dom";
-import { api, waitForJob, type SyncResult } from "../api";
+import { api, type SyncResult } from "../api";
 import { goBack } from "../navigation";
+import { MissingWordSyncDialog } from "../components/MissingWordSyncDialog";
 import { RubyText } from "../components/RubyText";
 import {
   groupNames,
@@ -21,18 +22,20 @@ import { wordPath } from "../wordPath";
 
 type Props = {
   snapshot: Snapshot;
+  word: Word | undefined;
   config: Config | null;
   hasAnkiSession: boolean;
   similar: Record<string, string[]>;
-  onSynced: (result: SyncResult) => void;
+  onSync: () => Promise<SyncResult | null>;
 };
 
 export function WordPage({
   snapshot,
+  word,
   config,
   hasAnkiSession,
   similar,
-  onSynced,
+  onSync,
 }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,9 +75,6 @@ export function WordPage({
       .catch(() => { if (active) setNoteTypes([]); });
     return () => { active = false; };
   }, [linkDialogOpen, config]);
-  const word = snapshot.words.find((item) =>
-    item.spelling === params.get("spelling") && item.reading === params.get("reading"),
-  );
   const wordId = word?.wordId;
   const trail: string[] =
     Array.isArray(location.state?.trail) &&
@@ -83,6 +83,8 @@ export function WordPage({
       : wordId
         ? [wordId]
         : [];
+  const previousId = trail.at(-2);
+  const previousWord = previousId && snapshot.words.find((entry) => entry.wordId === previousId);
   const group = (params.get("group") || "all") as Group | "all";
   const selectedKanji = params.get("kanji");
   const selectedReading = params.get("filterReading");
@@ -256,10 +258,8 @@ export function WordPage({
     setBusy(true);
     setMessage("");
     try {
-      const { jobId } = await api.sync();
-      const result = await api.applySync(await waitForJob(jobId));
-      onSynced(result);
-      if (!result.newUnresolved.length && !result.newDuplicates.length) setMessage("Deck synced");
+      const result = await onSync();
+      if (result && !result.newUnresolved.length && !result.newDuplicates.length) setMessage("Deck synced");
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "Sync failed");
     } finally {
@@ -267,101 +267,254 @@ export function WordPage({
     }
   }
 
-  if (!word || !groups || !allGroups)
+  function renderWordContent(
+    word: Word,
+    groups: Record<Group, Word[]>,
+    allGroups: Record<Group, Word[]>,
+  ) {
+    const matches = selectedKanji
+      ? groups.same.filter((item) => kanjiOf(item).includes(selectedKanji))
+      : [];
+    const readings = [
+      ...new Set(
+        matches
+          .map((item) => readingOf(item, selectedKanji!))
+          .filter((item): item is string => Boolean(item)),
+      ),
+    ];
+    const filtered = matches.filter(
+      (item) =>
+        !selectedReading || readingOf(item, selectedKanji!) === selectedReading,
+    );
+    const shown: Partial<Record<Group, Word[]>> = selectedKanji
+      ? { same: filtered }
+      : group === "all"
+        ? allGroups
+        : { [group]: groups[group] || [] };
+
+    function relatedList(
+      panelShown: Partial<Record<Group, Word[]>>,
+      withDividers: boolean,
+    ) {
+      const visibleBlocks = groupOrder.filter((kind) => panelShown[kind]?.length);
+      return (
+        <div className="related-list">
+          {visibleBlocks.length ? (
+            visibleBlocks.map((kind) => (
+              <div className="group-block" key={kind}>
+                {withDividers && (
+                  <div className={`group-divider ${kind}`}>
+                    {groupNames[kind]}
+                  </div>
+                )}
+                {panelShown[kind]?.map((item) => {
+                  const visualMatch =
+                    kind === "lookalikes"
+                      ? lookalikePairs(word, item, similar).join(" · ")
+                      : "";
+                  return (
+                    <button
+                      key={item.wordId}
+                      className="word-row"
+                      type="button"
+                      onClick={() => openWord(item)}
+                    >
+                      <span className="word-row-word">
+                        <RubyText word={item} selected={selectedKanji} />
+                      </span>
+                      <span className="word-row-details">
+                        {visualMatch && (
+                          <span className="word-row-relation">
+                            Similar kanji: {visualMatch}
+                          </span>
+                        )}
+                        <span className="word-row-meaning">
+                          {item.translations.join(" · ")}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))
+          ) : (
+            <div className="empty-state">No studied related words yet.</div>
+          )}
+        </div>
+      );
+    }
+
     return (
-      <main className="screen active word-screen">
-        <div className="word-window">
-          <header className="setup-header">
-            <h1>Word unavailable</h1>
-          </header>
-          <div className="empty-state">
-            This word is not in the current studied deck. Sync the deck or
-            return to another word.
-            <div className="missing-actions">
-              <button className="secondary-button" onClick={() => goBack(navigate, "/setup")}>
-                Go back
-              </button>
-              {hasAnkiSession && (
-                <button className="secondary-button" onClick={sync}>
-                  Sync
-                </button>
-              )}
-            </div>
+      <>
+        <div className="word-hero">
+          <div className="selected-word">
+            <RubyText
+              word={word}
+              interactive
+              selected={selectedKanji}
+              onKanji={(character) =>
+                setFilter({
+                  kanji: selectedKanji === character ? null : character,
+                  filterReading: null,
+                  group: null,
+                })
+              }
+            />
+          </div>
+          <div className="selected-meaning">
+            {word.translations.join(" · ")}
           </div>
         </div>
-      </main>
-    );
-
-  const currentWord = word;
-  const matches = selectedKanji
-    ? groups.same.filter((item) => kanjiOf(item).includes(selectedKanji))
-    : [];
-  const readings = [
-    ...new Set(
-      matches
-        .map((item) => readingOf(item, selectedKanji!))
-        .filter((item): item is string => Boolean(item)),
-    ),
-  ];
-  const filtered = matches.filter(
-    (item) =>
-      !selectedReading || readingOf(item, selectedKanji!) === selectedReading,
-  );
-  const shown: Partial<Record<Group, Word[]>> = selectedKanji
-    ? { same: filtered }
-    : group === "all"
-      ? allGroups
-      : { [group]: groups[group] || [] };
-
-  function relatedList(
-    panelShown: Partial<Record<Group, Word[]>>,
-    withDividers: boolean,
-  ) {
-    const visibleBlocks = groupOrder.filter((kind) => panelShown[kind]?.length);
-    return (
-      <div className="related-list">
-        {visibleBlocks.length ? (
-          visibleBlocks.map((kind) => (
-            <div className="group-block" key={kind}>
-              {withDividers && (
-                <div className={`group-divider ${kind}`}>
-                  {groupNames[kind]}
-                </div>
-              )}
-              {panelShown[kind]?.map((item) => {
-                const visualMatch =
-                  kind === "lookalikes"
-                    ? lookalikePairs(currentWord, item, similar).join(" · ")
-                    : "";
-                return (
-                  <button
-                    key={item.wordId}
-                    className="word-row"
-                    type="button"
-                    onClick={() => openWord(item)}
-                  >
-                    <span className="word-row-word">
-                      <RubyText word={item} selected={selectedKanji} />
-                    </span>
-                    <span className="word-row-details">
-                      {visualMatch && (
-                        <span className="word-row-relation">
-                          Similar kanji: {visualMatch}
-                        </span>
-                      )}
-                      <span className="word-row-meaning">
-                        {item.translations.join(" · ")}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ))
-        ) : (
-          <div className="empty-state">No studied related words yet.</div>
+        {showTabs && (
+          <div
+            ref={tabList}
+            className="relation-tabs"
+            role="tablist"
+            aria-label="Relationship types"
+          >
+            {availableTabs.map((kind) => {
+              const count = kind === "all" ? allCount : groups[kind].length;
+              return (
+                <button
+                  key={kind}
+                  className={`relation-tab ${activeTab === kind ? "active" : ""}`}
+                  data-group={kind}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === kind}
+                  onClick={() => {
+                    const scroller = pages.current;
+                    if (!scroller) return;
+                    scroller.scrollTo({
+                      left: availableTabs.indexOf(kind) * scroller.clientWidth,
+                      behavior: "smooth",
+                    });
+                  }}
+                >
+                  {kind === "all" ? "All" : groupNames[kind]} ({count})
+                </button>
+              );
+            })}
+          </div>
         )}
-      </div>
+        {selectedKanji && (
+          <div className="kanji-filter">
+            <div className="kanji-filter-heading">
+              <strong>
+                Same kanji: {selectedKanji} ({filtered.length})
+              </strong>
+              <button
+                type="button"
+                onClick={() => setFilter({ kanji: null, reading: null })}
+              >
+                Clear ×
+              </button>
+            </div>
+            {readings.length > 1 && (
+              <div className="reading-options">
+                {readings.map((reading) => (
+                  <button
+                    key={reading}
+                    className={reading === selectedReading ? "active" : ""}
+                    type="button"
+                    onClick={() =>
+                      setFilter({
+                        filterReading: reading === selectedReading ? null : reading,
+                      })
+                    }
+                  >
+                    {reading}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {showTabs ? (
+          <div
+            className="relation-pages"
+            ref={pages}
+            onScroll={onPagesScroll}
+            onScrollEnd={onPagesScrollEnd}
+            onTouchStart={(event) => {
+              if (event.touches.length !== 1) return;
+              touchStart.current = {
+                x: event.touches[0].clientX,
+                y: event.touches[0].clientY,
+              };
+              suppressPageClickUntil.current = 0;
+            }}
+            onTouchMove={(event) => {
+              const start = touchStart.current;
+              if (!start || event.touches.length !== 1) return;
+              if (
+                Math.abs(event.touches[0].clientX - start.x) > 12 ||
+                Math.abs(event.touches[0].clientY - start.y) > 12
+              )
+                suppressPageClickUntil.current = Date.now() + 350;
+            }}
+            onTouchEnd={(event) => {
+              const start = touchStart.current;
+              touchStart.current = null;
+              if (!start || event.changedTouches.length !== 1) return;
+              const deltaX = event.changedTouches[0].clientX - start.x;
+              const deltaY = event.changedTouches[0].clientY - start.y;
+              if (Math.abs(deltaX) > 12 || Math.abs(deltaY) > 12)
+                suppressPageClickUntil.current = Date.now() + 350;
+            }}
+            onTouchCancel={() => {
+              if (touchStart.current)
+                suppressPageClickUntil.current = Date.now() + 350;
+              touchStart.current = null;
+            }}
+            onPointerDown={(event) => {
+              pointerStart.current = { x: event.clientX, y: event.clientY };
+              suppressPageClickUntil.current = 0;
+            }}
+            onPointerMove={(event) => {
+              const start = pointerStart.current;
+              if (
+                start &&
+                (Math.abs(event.clientX - start.x) > 12 ||
+                  Math.abs(event.clientY - start.y) > 12)
+              )
+                suppressPageClickUntil.current = Date.now() + 350;
+            }}
+            onPointerUp={() => {
+              pointerStart.current = null;
+            }}
+            onPointerCancel={() => {
+              pointerStart.current = null;
+            }}
+            onClickCapture={(event) => {
+              if (Date.now() >= suppressPageClickUntil.current) return;
+              suppressPageClickUntil.current = 0;
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            style={pageHeight === null ? undefined : { height: pageHeight }}
+          >
+            {availableTabs.map((kind) => (
+              <div
+                className="relation-page"
+                key={kind}
+                ref={(element) => {
+                  pageNodes.current[kind] = element;
+                }}
+                role="tabpanel"
+                aria-label={kind === "all" ? "All" : groupNames[kind]}
+              >
+                {relatedList(
+                  kind === "all" ? allGroups : { [kind]: groups[kind] },
+                  kind === "all",
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          relatedList(shown, false)
+        )}
+      </>
     );
   }
 
@@ -372,13 +525,16 @@ export function WordPage({
           <button
             className="icon-button"
             type="button"
-            aria-label="Previous word"
-            disabled={trail.length <= 1}
-            onClick={() =>
-              navigate(wordPath(snapshot.words.find((entry) => entry.wordId === trail[trail.length - 2])!), {
-                state: { trail: trail.slice(0, -1) },
-              })
-            }
+            aria-label={word ? "Previous word" : "Back"}
+            disabled={Boolean(word && !previousWord)}
+            onClick={() => {
+              if (previousWord) {
+                navigate(wordPath(previousWord), { state: { trail: trail.slice(0, -1) } });
+              } else if (!word) {
+                const firstWord = snapshot.words[0];
+                goBack(navigate, firstWord ? wordPath(firstWord) : "/setup");
+              }
+            }}
           >
             ←
           </button>
@@ -434,202 +590,52 @@ export function WordPage({
             </div>
           )}
         </header>
-        <nav ref={crumbs} className="breadcrumbs" aria-label="Word history">
-          {trail.map((id, index) => {
-            const item = snapshot.words.find((entry) => entry.wordId === id);
-            return (
-              <span className="crumb-item" key={`${id}:${index}`}>
-                {index > 0 && (
-                  <span className="crumb-separator" aria-hidden="true">
-                    ›
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className={id === wordId ? "current" : ""}
-                  onClick={() =>
-                    navigate(wordPath(item!), {
-                      state: { trail: trail.slice(0, index + 1) },
-                    })
-                  }
-                >
-                  {item?.spelling || "…"}
-                </button>
-              </span>
-            );
-          })}
-        </nav>
-        <div className="word-content" ref={content}>
-          <div className="word-hero">
-            <div className="selected-word">
-              <RubyText
-                word={word}
-                interactive
-                selected={selectedKanji}
-                onKanji={(character) =>
-                  setFilter({
-                    kanji: selectedKanji === character ? null : character,
-                    filterReading: null,
-                    group: null,
-                  })
-                }
-              />
-            </div>
-            <div className="selected-meaning">
-              {word.translations.join(" · ")}
-            </div>
-          </div>
-          {showTabs && (
-            <div
-              ref={tabList}
-              className="relation-tabs"
-              role="tablist"
-              aria-label="Relationship types"
-            >
-              {availableTabs.map((kind) => {
-                const count = kind === "all" ? allCount : groups[kind].length;
-                return (
-                  <button
-                    key={kind}
-                    className={`relation-tab ${activeTab === kind ? "active" : ""}`}
-                    data-group={kind}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeTab === kind}
-                    onClick={() => {
-                      const scroller = pages.current;
-                      if (!scroller) return;
-                      scroller.scrollTo({
-                        left: availableTabs.indexOf(kind) * scroller.clientWidth,
-                        behavior: "smooth",
-                      });
-                    }}
-                  >
-                    {kind === "all" ? "All" : groupNames[kind]} ({count})
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {selectedKanji && (
-            <div className="kanji-filter">
-              <div className="kanji-filter-heading">
-                <strong>
-                  Same kanji: {selectedKanji} ({filtered.length})
-                </strong>
-                <button
-                  type="button"
-                  onClick={() => setFilter({ kanji: null, reading: null })}
-                >
-                  Clear ×
-                </button>
-              </div>
-              {readings.length > 1 && (
-                <div className="reading-options">
-                  {readings.map((reading) => (
-                    <button
-                      key={reading}
-                      className={reading === selectedReading ? "active" : ""}
-                      type="button"
-                      onClick={() =>
-                        setFilter({
-                          filterReading: reading === selectedReading ? null : reading,
-                        })
-                      }
-                    >
-                      {reading}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {showTabs ? (
-            <div
-              className="relation-pages"
-              ref={pages}
-              onScroll={onPagesScroll}
-              onScrollEnd={onPagesScrollEnd}
-              onTouchStart={(event) => {
-                if (event.touches.length !== 1) return;
-                touchStart.current = {
-                  x: event.touches[0].clientX,
-                  y: event.touches[0].clientY,
-                };
-                suppressPageClickUntil.current = 0;
-              }}
-              onTouchMove={(event) => {
-                const start = touchStart.current;
-                if (!start || event.touches.length !== 1) return;
-                if (
-                  Math.abs(event.touches[0].clientX - start.x) > 12 ||
-                  Math.abs(event.touches[0].clientY - start.y) > 12
-                )
-                  suppressPageClickUntil.current = Date.now() + 350;
-              }}
-              onTouchEnd={(event) => {
-                const start = touchStart.current;
-                touchStart.current = null;
-                if (!start || event.changedTouches.length !== 1) return;
-                const deltaX = event.changedTouches[0].clientX - start.x;
-                const deltaY = event.changedTouches[0].clientY - start.y;
-                if (Math.abs(deltaX) > 12 || Math.abs(deltaY) > 12)
-                  suppressPageClickUntil.current = Date.now() + 350;
-              }}
-              onTouchCancel={() => {
-                if (touchStart.current)
-                  suppressPageClickUntil.current = Date.now() + 350;
-                touchStart.current = null;
-              }}
-              onPointerDown={(event) => {
-                pointerStart.current = { x: event.clientX, y: event.clientY };
-                suppressPageClickUntil.current = 0;
-              }}
-              onPointerMove={(event) => {
-                const start = pointerStart.current;
-                if (
-                  start &&
-                  (Math.abs(event.clientX - start.x) > 12 ||
-                    Math.abs(event.clientY - start.y) > 12)
-                )
-                  suppressPageClickUntil.current = Date.now() + 350;
-              }}
-              onPointerUp={() => {
-                pointerStart.current = null;
-              }}
-              onPointerCancel={() => {
-                pointerStart.current = null;
-              }}
-              onClickCapture={(event) => {
-                if (Date.now() >= suppressPageClickUntil.current) return;
-                suppressPageClickUntil.current = 0;
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              style={pageHeight === null ? undefined : { height: pageHeight }}
-            >
-              {availableTabs.map((kind) => (
-                <div
-                  className="relation-page"
-                  key={kind}
-                  ref={(element) => {
-                    pageNodes.current[kind] = element;
-                  }}
-                  role="tabpanel"
-                  aria-label={kind === "all" ? "All" : groupNames[kind]}
-                >
-                  {relatedList(
-                    kind === "all" ? allGroups : { [kind]: groups[kind] },
-                    kind === "all",
+        {trail.length > 0 && (
+          <nav ref={crumbs} className="breadcrumbs" aria-label="Word history">
+            {trail.map((id, index) => {
+              const item = snapshot.words.find((entry) => entry.wordId === id);
+              return (
+                <span className="crumb-item" key={`${id}:${index}`}>
+                  {index > 0 && (
+                    <span className="crumb-separator" aria-hidden="true">
+                      ›
+                    </span>
                   )}
-                </div>
-              ))}
-            </div>
+                  <button
+                    type="button"
+                    className={id === wordId ? "current" : ""}
+                    onClick={() =>
+                      navigate(wordPath(item!), {
+                        state: { trail: trail.slice(0, index + 1) },
+                      })
+                    }
+                  >
+                    {item?.spelling || "…"}
+                  </button>
+                </span>
+              );
+            })}
+          </nav>
+        )}
+        <div className="word-content" ref={content}>
+          {word && groups && allGroups ? (
+            renderWordContent(word, groups, allGroups)
           ) : (
-            relatedList(shown, false)
+            <div className="empty-state">
+              <h1>Word unavailable</h1>
+              <p>This word is not in the current studied deck.</p>
+            </div>
           )}
         </div>
       </div>
+      {!word && hasAnkiSession && (
+        <MissingWordSyncDialog
+          key={location.key}
+          spelling={params.get("spelling")}
+          reading={params.get("reading")}
+          onSync={onSync}
+        />
+      )}
       {linkDialogOpen && (
         <div className="dialog-backdrop" onMouseDown={(event) => {
           if (event.target === event.currentTarget) setLinkDialogOpen(false);

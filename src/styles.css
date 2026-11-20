@@ -852,6 +852,14 @@ rt {
   padding: 30px 25px;
   font-size: 14px;
 }
+.word-content > .empty-state h1 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 20px;
+}
+.word-content > .empty-state p {
+  margin: 0;
+}
 .toast {
   position: fixed;
   inset-inline: 20px;
@@ -984,12 +992,6 @@ rt {
 }
 .choice-list {
   padding-bottom: 10px;
-}
-.missing-actions {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 22px;
 }
 .visually-hidden {
   position: absolute;
@@ -1307,7 +1309,7 @@ rt {
   padding: 20px;
 }
 .dialog-backdrop,
-.sync-results-dialog::backdrop {
+dialog.confirmation-dialog::backdrop {
   background: #09090bc9;
   backdrop-filter: blur(3px);
 }
@@ -1344,13 +1346,16 @@ rt {
   font-size: 14px;
   line-height: 1.55;
 }
-.sync-results-dialog {
+dialog.confirmation-dialog {
   width: min(calc(100% - 40px), 430px);
   max-height: calc(100% - 40px);
   color: var(--text);
 }
 .sync-results-dialog p + p {
   margin-top: 8px;
+}
+.confirmation-dialog .form-error {
+  margin: 8px 0 0;
 }
 .confirmation-actions {
   display: flex;
