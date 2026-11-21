@@ -98,6 +98,7 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
     trigger: HTMLButtonElement;
   } | null>(null);
   const deckTrigger = useRef<HTMLSelectElement>(null);
+  const noteTabs = useRef<HTMLDivElement>(null);
   const [pendingDeckId, setPendingDeckId] = useState<number | null>(null);
   const previewSignature = JSON.stringify(
     Object.entries(mappings).map(([id, item]) => [
@@ -187,6 +188,21 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
   }, [deckId, includeChildren, previewSignature, types, snapshotVersion]);
 
   const current = types[selectedType];
+  useEffect(() => {
+    const list = noteTabs.current;
+    const tab = list?.querySelector('[role="tab"][data-state="active"]');
+    if (!list || !tab || list.scrollWidth <= list.clientWidth) return;
+    const listBounds = list.getBoundingClientRect();
+    const tabBounds = tab.getBoundingClientRect();
+    list.scrollTo({
+      left:
+        list.scrollLeft +
+        tabBounds.left -
+        listBounds.left +
+        (tabBounds.width - list.clientWidth) / 2,
+    });
+  }, [selectedType, types]);
+
   const mapping = current ? mappings[String(current.id)] : null;
   const unresolvedInType = current
     ? preview?.unresolved.filter((word) => word.noteTypeId === current.id) || []
@@ -383,7 +399,8 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
                 className="mt-3 gap-4"
               >
                 <TabsList
-                  className="h-auto max-w-full justify-start overflow-x-auto p-1"
+                  ref={noteTabs}
+                  className="max-w-full justify-start overflow-x-auto scroll-smooth p-1 group-data-[orientation=horizontal]/tabs:h-auto"
                   aria-label="Note types"
                 >
                   {types.map((type, index) => {

@@ -75,16 +75,33 @@ function WordRoute({
   const word = matches.length === 1 ? matches[0] : undefined;
 
   useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    const legacyFilters = ["group", "kanji", "filterReading"];
+    const hasLegacyFilters = legacyFilters.some((key) => search.has(key));
+    for (const key of legacyFilters) search.delete(key);
     if (!snapshot) {
+      const query = search.toString();
       sessionStorage.setItem(
         "pendingWord",
-        location.pathname + location.search,
+        query ? `${location.pathname}?${query}` : location.pathname,
       );
       navigate("/setup", { replace: true });
       return;
     }
-    if (word && (spelling !== word.spelling || reading !== word.reading))
-      navigate(wordPath(word), { replace: true });
+    const replace = { replace: true, state: location.state };
+    if (
+      word &&
+      (hasLegacyFilters ||
+        spelling !== word.spelling ||
+        reading !== word.reading)
+    ) {
+      navigate(wordPath(word), replace);
+    } else if (hasLegacyFilters) {
+      navigate(
+        { pathname: location.pathname, search: search.toString() },
+        replace,
+      );
+    }
   }, [location, navigate, reading, snapshot, spelling, word]);
 
   if (snapshot) {
@@ -92,6 +109,7 @@ function WordRoute({
       return (
         <Suspense fallback={<LoadingScreen />}>
           <WordPage
+            key={location.key}
             snapshot={snapshot}
             word={word}
             config={status?.config || null}

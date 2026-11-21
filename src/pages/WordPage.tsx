@@ -1,5 +1,12 @@
 import { ArrowLeftIcon, EllipsisIcon, RefreshCwIcon } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Link,
   useLocation,
@@ -91,8 +98,15 @@ export default function WordPage({
   const [linkFeedback, setLinkFeedback] = useState("");
   const [noteTypes, setNoteTypes] = useState<NoteType[]>([]);
   const [busy, setBusy] = useState(false);
+  const [group, setGroup] = useState<Group | "all">("all");
+  const [selectedKanji, setSelectedKanji] = useState<string | null>(null);
+  const [selectedReading, setSelectedReading] = useState<string | null>(null);
+  const [previewTab, setPreviewTab] = useState<Group | "all" | undefined>();
   const crumbs = useRef<HTMLElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const relationTabs = useRef<HTMLDivElement>(null);
+  const relationPages = useRef<HTMLDivElement>(null);
+  const relationScrollTimer = useRef<number | undefined>(undefined);
   const menuButton = useRef<HTMLButtonElement>(null);
   const linkDialogFocus = useDialogFocus(menuButton);
   const cardLinkTemplates = config
@@ -126,12 +140,6 @@ export default function WordPage({
       : wordId
         ? [wordId]
         : [];
-  const previousId = trail.at(-2);
-  const previousWord =
-    previousId && snapshot.words.find((entry) => entry.wordId === previousId);
-  const group = (params.get("group") || "all") as Group | "all";
-  const selectedKanji = params.get("kanji");
-  const selectedReading = params.get("filterReading");
   const groups = useMemo(
     () => (word ? relatedGroups(word, snapshot.words, similar) : null),
     [word, snapshot, similar],
@@ -143,14 +151,47 @@ export default function WordPage({
   const allCount = allGroups
     ? groupOrder.reduce((count, kind) => count + allGroups[kind].length, 0)
     : 0;
-  const availableTabs = useMemo<(Group | "all")[]>(
-    () =>
-      groups && allCount > 0
-        ? ["all", ...groupOrder.filter((kind) => groups[kind].length > 0)]
-        : [],
-    [groups, allCount],
-  );
-  const activeTab = availableTabs.includes(group) ? group : "all";
+  const availableTabs = useMemo<(Group | "all")[]>(() => {
+    const kinds = groups
+      ? groupOrder.filter((kind) => groups[kind].length > 0)
+      : [];
+    return kinds.length > 1 ? ["all", ...kinds] : kinds;
+  }, [groups]);
+  const activeTab = availableTabs.includes(group) ? group : availableTabs[0];
+  const visibleTab = previewTab ?? activeTab;
+
+  useEffect(() => {
+    const list = relationTabs.current;
+    const tab = list?.querySelector('[role="tab"][data-state="active"]');
+    if (!list || !tab || list.scrollWidth <= list.clientWidth) return;
+    const listBounds = list.getBoundingClientRect();
+    const tabBounds = tab.getBoundingClientRect();
+    if (tabBounds.left < listBounds.left) {
+      list.scrollBy({ left: tabBounds.left - listBounds.left });
+    } else if (tabBounds.right > listBounds.right) {
+      list.scrollBy({ left: tabBounds.right - listBounds.right });
+    }
+  }, [visibleTab, availableTabs, selectedKanji]);
+
+  useLayoutEffect(() => {
+    setPreviewTab(undefined);
+    const pages = relationPages.current;
+    const panel = pages?.children[availableTabs.indexOf(activeTab)];
+    if (!pages || !(panel instanceof HTMLElement)) return;
+    const fitPanel = () => {
+      pages.style.height = `${panel.offsetHeight}px`;
+    };
+    fitPanel();
+    if (Math.abs(pages.scrollLeft - panel.offsetLeft) > 1) {
+      pages.scrollTo({ left: panel.offsetLeft, behavior: "instant" });
+    }
+    const observer = new ResizeObserver(fitPanel);
+    observer.observe(panel);
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(relationScrollTimer.current);
+    };
+  }, [activeTab, availableTabs, selectedKanji]);
 
   useEffect(() => {
     crumbs.current?.scrollTo({ left: crumbs.current.scrollWidth });
@@ -178,14 +219,36 @@ export default function WordPage({
     return { to: wordPath(next), state: { trail: nextTrail } };
   }
 
-  function setFilter(update: Record<string, string | null>) {
-    const next = new URLSearchParams(params);
-    for (const [key, value] of Object.entries(update))
-      value ? next.set(key, value) : next.delete(key);
-    navigate(
-      { pathname: location.pathname, search: next.toString() },
-      { state: { trail } },
-    );
+  function filterByKanji(kanji: string | null) {
+    setSelectedKanji(kanji);
+    setSelectedReading(null);
+    setGroup("all");
+  }
+
+  function scrollToTab(kind: string) {
+    const pages = relationPages.current;
+    const index = availableTabs.findIndex((tab) => tab === kind);
+    const panel = pages?.children[index];
+    if (!pages || !(panel instanceof HTMLElement)) return;
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    pages.scrollTo({
+      left: panel.offsetLeft,
+      behavior: reduceMotion ? "instant" : "smooth",
+    });
+  }
+
+  function nearestRelationTab(pages: HTMLDivElement) {
+    if (!pages.clientWidth) return;
+    return availableTabs[Math.round(pages.scrollLeft / pages.clientWidth)];
+  }
+
+  function settleRelationTab(pages: HTMLDivElement) {
+    if (pages !== relationPages.current) return;
+    const kind = nearestRelationTab(pages);
+    if (!kind || kind === activeTab) return;
+    setGroup(kind);
   }
 
   async function sync(trigger: HTMLButtonElement) {
@@ -235,13 +298,13 @@ export default function WordPage({
         return (
           <Empty>
             <EmptyHeader>
-              <EmptyTitle>No studied related words yet.</EmptyTitle>
+              <EmptyTitle>No similar words found.</EmptyTitle>
             </EmptyHeader>
           </Empty>
         );
       }
       return (
-        <div className="grid gap-4">
+        <div className="grid gap-2">
           {visibleGroups.map((kind) => (
             <ItemGroup
               key={kind}
@@ -250,13 +313,12 @@ export default function WordPage({
               className="gap-2"
             >
               {grouped && (
-                <Badge
-                  variant="outline"
-                  className="w-fit relation-label"
+                <h2
+                  className="relation-label m-0 rounded-md bg-[color-mix(in_srgb,currentColor_24%,var(--background))] px-3 py-1.5 text-center text-base font-semibold"
                   data-group={kind}
                 >
                   {groupNames[kind]}
-                </Badge>
+                </h2>
               )}
               {panelShown[kind]?.map((item) => (
                 <RecordRow
@@ -286,11 +348,7 @@ export default function WordPage({
               interactive
               selected={selectedKanji}
               onKanji={(character) =>
-                setFilter({
-                  kanji: selectedKanji === character ? null : character,
-                  filterReading: null,
-                  group: null,
-                })
+                filterByKanji(selectedKanji === character ? null : character)
               }
             />
           </div>
@@ -308,7 +366,7 @@ export default function WordPage({
                 variant="ghost"
                 size="sm"
                 type="button"
-                onClick={() => setFilter({ kanji: null, filterReading: null })}
+                onClick={() => filterByKanji(null)}
               >
                 Clear ×
               </Button>
@@ -321,9 +379,7 @@ export default function WordPage({
                 className="mt-2 flex-wrap"
                 aria-label="Filter by reading"
                 value={selectedReading ?? ""}
-                onValueChange={(reading) =>
-                  setFilter({ filterReading: reading || null })
-                }
+                onValueChange={(reading) => setSelectedReading(reading || null)}
               >
                 {readings.map((reading) => (
                   <ToggleGroupItem key={reading} value={reading}>
@@ -334,44 +390,67 @@ export default function WordPage({
             )}
           </div>
         )}
-        <div className="p-4">
+        <div className="flex grow flex-col p-4">
           {selectedKanji ? (
             relatedList({ same: filtered })
           ) : availableTabs.length ? (
             <Tabs
-              value={activeTab}
+              className="grow"
+              value={visibleTab}
               activationMode="manual"
-              onValueChange={(kind) =>
-                setFilter({ group: kind === "all" ? null : kind })
-              }
+              onValueChange={scrollToTab}
             >
               <TabsList
-                className="h-auto max-w-full flex-wrap justify-start"
+                ref={relationTabs}
+                className="w-full flex-nowrap justify-start overflow-x-auto p-1 scrollbar-none group-data-[orientation=horizontal]/tabs:h-auto"
                 aria-label="Relationship types"
               >
                 {availableTabs.map((kind) => (
                   <TabsTrigger
                     key={kind}
-                    className="relation-label"
+                    className="relation-label h-auto flex-[1_0_auto] text-base"
                     data-group={kind}
                     value={kind}
                   >
                     {kind === "all" ? "All" : groupNames[kind]}
-                    <Badge variant="secondary">
+                    <Badge variant="secondary" className="text-sm">
                       {kind === "all" ? allCount : groups[kind].length}
                     </Badge>
                   </TabsTrigger>
                 ))}
               </TabsList>
-              {availableTabs.map((kind) => (
-                <TabsContent key={kind} value={kind}>
-                  {kind === activeTab &&
-                    relatedList(
+              <div
+                ref={relationPages}
+                className="relative flex grow shrink-0 snap-x snap-mandatory items-start overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-none"
+                onScrollEnd={(event) => settleRelationTab(event.currentTarget)}
+                onScroll={(event) => {
+                  const pages = event.currentTarget;
+                  setPreviewTab(nearestRelationTab(pages));
+                  if ("onscrollend" in pages) return;
+                  window.clearTimeout(relationScrollTimer.current);
+                  relationScrollTimer.current = window.setTimeout(
+                    () => settleRelationTab(pages),
+                    180,
+                  );
+                }}
+              >
+                {availableTabs.map((kind) => (
+                  <TabsContent
+                    key={kind}
+                    value={kind}
+                    forceMount
+                    inert={kind !== visibleTab}
+                    aria-hidden={kind !== visibleTab}
+                    tabIndex={kind === visibleTab ? 0 : -1}
+                    className="min-w-0 flex-[0_0_100%] snap-start snap-always"
+                  >
+                    {relatedList(
                       kind === "all" ? allGroups : { [kind]: groups[kind] },
                       kind === "all",
                     )}
-                </TabsContent>
-              ))}
+                  </TabsContent>
+                ))}
+              </div>
             </Tabs>
           ) : (
             relatedList({})
@@ -384,23 +463,15 @@ export default function WordPage({
   return (
     <main className="screen active word-screen">
       <div className="word-window">
-        <header className={`word-header ${hasAnkiSession ? "has-sync" : ""}`}>
+        <header className="word-header">
           <Button
             variant="ghost"
             size="icon-lg"
-            className="justify-self-start"
             type="button"
-            aria-label={word ? "Previous word" : "Back"}
-            disabled={Boolean(word && !previousWord)}
+            aria-label="Back"
             onClick={() => {
-              if (previousWord) {
-                navigate(wordPath(previousWord), {
-                  state: { trail: trail.slice(0, -1) },
-                });
-              } else if (!word) {
-                const firstWord = snapshot.words[0];
-                goBack(navigate, firstWord ? wordPath(firstWord) : "/setup");
-              }
+              const fallbackWord = word ? undefined : snapshot.words[0];
+              goBack(navigate, fallbackWord ? wordPath(fallbackWord) : "/setup");
             }}
           >
             <ArrowLeftIcon className="size-5" aria-hidden="true" />
@@ -475,10 +546,10 @@ export default function WordPage({
         {trail.length > 0 && (
           <Breadcrumb
             ref={crumbs}
-            className="overflow-x-auto border-b px-4 py-3"
+            className="shrink-0 overflow-x-auto overflow-y-hidden border-b px-4 py-3 scrollbar-none"
             aria-label="Word history"
           >
-            <BreadcrumbList className="m-0 w-max list-none flex-nowrap p-0">
+            <BreadcrumbList className="m-0 w-max list-none flex-nowrap p-0 text-base">
               {trail.map((id, index) => {
                 const item = snapshot.words.find(
                   (entry) => entry.wordId === id,
@@ -486,7 +557,7 @@ export default function WordPage({
                 if (!item) return null;
                 return (
                   <Fragment key={id}>
-                    {index > 0 && <BreadcrumbSeparator />}
+                    {index > 0 && <BreadcrumbSeparator className="flex" />}
                     <BreadcrumbItem>
                       {id === wordId ? (
                         <BreadcrumbPage>{item.spelling}</BreadcrumbPage>
@@ -510,7 +581,10 @@ export default function WordPage({
             </BreadcrumbList>
           </Breadcrumb>
         )}
-        <div className="word-content" ref={content}>
+        <div
+          className="word-content flex flex-col [&>*]:shrink-0"
+          ref={content}
+        >
           {word && groups && allGroups ? (
             renderWordContent(word, groups, allGroups)
           ) : (

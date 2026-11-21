@@ -183,14 +183,15 @@ body {
   flex: 0 0 auto;
   border-bottom: 1px solid var(--border);
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr) 120px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
+  gap: 0.5rem;
   padding: 0 22px;
   position: relative;
   z-index: 2;
 }
 .deck-heading {
-  text-align: center;
+  text-align: left;
   display: grid;
   gap: 3px;
   min-width: 0;
@@ -203,7 +204,7 @@ body {
   text-overflow: ellipsis;
 }
 .deck-heading span {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--muted-foreground);
 }
 .header-actions {
@@ -229,6 +230,7 @@ body {
 }
 .selected-word {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: center;
   gap: 2px;
@@ -260,7 +262,7 @@ ruby {
   ruby-align: center;
 }
 rt {
-  font-size: 0.24em;
+  font-size: 0.3em;
   font-weight: 400;
   letter-spacing: 0.03em;
   color: var(--foreground);
@@ -271,7 +273,6 @@ rt {
   margin-top: 8px;
 }
 .word-row-word {
-  min-width: 130px;
   font-size: 27px;
   font-weight: 200;
   line-height: 1.15;
@@ -279,7 +280,7 @@ rt {
   font-family: "Hiragino Sans", "Yu Gothic", sans-serif;
 }
 .word-row-word rt {
-  font-size: 0.3em;
+  font-size: 0.48em;
 }
 .word-row-word .kanji-highlight {
   font-weight: 700;
@@ -324,10 +325,6 @@ rt {
   }
   .word-header {
     padding-inline: 0.75rem;
-    grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem;
-  }
-  .word-header.has-sync {
-    grid-template-columns: 2.75rem minmax(0, 1fr) auto;
   }
   .selected-word {
     font-size: 3.25rem;
