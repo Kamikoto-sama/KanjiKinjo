@@ -19,6 +19,7 @@ import { goBack } from "../navigation";
 import { MissingWordSyncDialog } from "../components/MissingWordSyncDialog";
 import { RecordRow } from "../components/RecordRow";
 import { RubyText } from "../components/RubyText";
+import { WordSearch, type WordSearchState } from "../components/WordSearch";
 import { Badge } from "../components/ui/badge";
 import {
   Breadcrumb,
@@ -76,7 +77,8 @@ import { wordPath } from "../wordPath";
 
 type Props = {
   snapshot: Snapshot;
-  word: Word | undefined;
+  word?: Word;
+  search?: WordSearchState;
   config: Config | null;
   hasAnkiSession: boolean;
   similar: Record<string, string[]>;
@@ -86,6 +88,7 @@ type Props = {
 export default function WordPage({
   snapshot,
   word,
+  search,
   config,
   hasAnkiSession,
   similar,
@@ -108,6 +111,8 @@ export default function WordPage({
   const relationPages = useRef<HTMLDivElement>(null);
   const relationScrollTimer = useRef<number | undefined>(undefined);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const focusSearchOnClose = useRef(false);
   const linkDialogFocus = useDialogFocus(menuButton);
   const cardLinkTemplates = config
     ? Object.entries(config.mappings)
@@ -469,10 +474,7 @@ export default function WordPage({
             size="icon-lg"
             type="button"
             aria-label="Back"
-            onClick={() => {
-              const fallbackWord = word ? undefined : snapshot.words[0];
-              goBack(navigate, fallbackWord ? wordPath(fallbackWord) : "/setup");
-            }}
+            onClick={() => goBack(navigate, search ? "/setup" : "/search")}
           >
             <ArrowLeftIcon className="size-5" aria-hidden="true" />
           </Button>
@@ -522,9 +524,22 @@ export default function WordPage({
               <DropdownMenuContent
                 align="end"
                 onCloseAutoFocus={(event) => {
+                  if (focusSearchOnClose.current) {
+                    focusSearchOnClose.current = false;
+                    event.preventDefault();
+                    searchInput.current?.focus();
+                  }
                   if (linkDialogOpen) event.preventDefault();
                 }}
               >
+                <DropdownMenuItem
+                  onSelect={() => {
+                    if (search) focusSearchOnClose.current = true;
+                    else navigate("/search");
+                  }}
+                >
+                  Search words
+                </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => navigate("/import")}>
                   Re-import deck
                 </DropdownMenuItem>
@@ -581,27 +596,35 @@ export default function WordPage({
             </BreadcrumbList>
           </Breadcrumb>
         )}
-        <div
-          className="word-content flex flex-col [&>*]:shrink-0"
-          ref={content}
-        >
-          {word && groups && allGroups ? (
-            renderWordContent(word, groups, allGroups)
-          ) : (
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>
-                  <h1 className="m-0 text-lg">Word unavailable</h1>
-                </EmptyTitle>
-                <EmptyDescription>
-                  This word is not in the current studied deck.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-        </div>
+        {search ? (
+          <WordSearch
+            {...search}
+            words={snapshot.words}
+            inputRef={searchInput}
+          />
+        ) : (
+          <div
+            className="word-content flex flex-col [&>*]:shrink-0"
+            ref={content}
+          >
+            {word && groups && allGroups ? (
+              renderWordContent(word, groups, allGroups)
+            ) : (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyTitle>
+                    <h1 className="m-0 text-lg">Word unavailable</h1>
+                  </EmptyTitle>
+                  <EmptyDescription>
+                    This word is not in the current studied deck.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </div>
+        )}
       </div>
-      {!word && hasAnkiSession && (
+      {!search && !word && hasAnkiSession && (
         <MissingWordSyncDialog
           key={location.key}
           spelling={params.get("spelling")}

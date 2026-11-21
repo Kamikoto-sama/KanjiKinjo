@@ -7,7 +7,7 @@ type Props = {
   word: Pick<Word, "spelling" | "ruby" | "translations">;
   selectedKanji?: string | null;
   visualMatch?: string;
-  link?: { to: To; state: { trail: string[] } };
+  link?: { to: To; state?: { trail: string[] } };
 };
 
 export function RecordRow({ word, selectedKanji, visualMatch, link }: Props) {

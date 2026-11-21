@@ -9,7 +9,6 @@ import {
   CardFooter,
 } from "../components/ui/card";
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
-import { wordPath } from "../wordPath";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -311,12 +310,8 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
     sessionStorage.removeItem("setupDraft");
     const pending = sessionStorage.getItem("pendingWord");
     sessionStorage.removeItem("pendingWord");
-    navigate(
-      pending || (snapshot.words[0] ? wordPath(snapshot.words[0]) : "/setup"),
-      {
-        replace: true,
-      },
-    );
+    if (pending) navigate(pending, { replace: true });
+    else navigate("/search");
   }
 
   async function continueAfterWarning() {

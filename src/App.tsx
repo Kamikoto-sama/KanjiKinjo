@@ -75,6 +75,10 @@ function WordRoute({
   const word = matches.length === 1 ? matches[0] : undefined;
 
   useEffect(() => {
+    if (!normalizedSpelling) {
+      navigate("/search", { replace: true });
+      return;
+    }
     const search = new URLSearchParams(location.search);
     const legacyFilters = ["group", "kanji", "filterReading"];
     const hasLegacyFilters = legacyFilters.some((key) => search.has(key));
@@ -102,8 +106,17 @@ function WordRoute({
         replace,
       );
     }
-  }, [location, navigate, reading, snapshot, spelling, word]);
+  }, [
+    location,
+    navigate,
+    normalizedSpelling,
+    reading,
+    snapshot,
+    spelling,
+    word,
+  ]);
 
+  if (!normalizedSpelling) return null;
   if (snapshot) {
     if (matches.length <= 1)
       return (
@@ -128,12 +141,7 @@ function WordRoute({
               size="icon-lg"
               type="button"
               aria-label="Back"
-              onClick={() =>
-                goBack(
-                  navigate,
-                  snapshot.words[0] ? wordPath(snapshot.words[0]) : "/setup",
-                )
-              }
+              onClick={() => goBack(navigate, "/search")}
             >
               <ArrowLeftIcon className="size-5" aria-hidden="true" />
             </Button>
@@ -173,6 +181,7 @@ function Application() {
   const { pathname } = useLocation();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [similar, setSimilar] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [dictionaryProgress, setDictionaryProgress] = useState("");
@@ -291,22 +300,38 @@ function Application() {
 
   if (loading) return <LoadingScreen />;
 
-  const firstWord = snapshot?.words[0];
-  const entry = firstWord
-    ? wordPath(firstWord)
-    : status?.hasCollection
-      ? "/setup"
-      : "/import";
   return (
     <>
       <Routes>
-        <Route path="/" element={<Navigate to={entry} replace />} />
+        <Route path="/" element={<Navigate to="/import" replace />} />
+        <Route
+          path="/search"
+          element={
+            snapshot ? (
+              <Suspense fallback={<LoadingScreen />}>
+                <WordPage
+                  snapshot={snapshot}
+                  search={{ query: searchQuery, onQueryChange: setSearchQuery }}
+                  config={status?.config || null}
+                  hasAnkiSession={Boolean(status?.hasAnkiSession)}
+                  similar={similar}
+                  onSync={(returnFocus) => syncDeck(undefined, returnFocus)}
+                />
+              </Suspense>
+            ) : (
+              <Navigate
+                to={status?.hasCollection ? "/setup" : "/import"}
+                replace
+              />
+            )
+          }
+        />
         <Route
           path="/import"
           element={
             <ImportPage
               status={status}
-              fallback={firstWord ? wordPath(firstWord) : "/login"}
+              fallback={snapshot ? "/search" : "/login"}
             />
           }
         />
@@ -342,7 +367,7 @@ function Application() {
                 snapshotVersion={snapshot?.snapshotVersion}
               />
             ) : (
-              <Navigate to={entry} replace />
+              <Navigate to="/import" replace />
             )
           }
         />
@@ -355,7 +380,7 @@ function Application() {
                 onSnapshot={setSnapshot}
               />
             ) : (
-              <Navigate to={entry} replace />
+              <Navigate to="/import" replace />
             )
           }
         />
@@ -370,7 +395,7 @@ function Application() {
             />
           }
         />
-        <Route path="*" element={<Navigate to={entry} replace />} />
+        <Route path="*" element={<Navigate to="/import" replace />} />
       </Routes>
       {syncIssues && (
         <SyncResultsDialog
