@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { ArrowLeftIcon } from "lucide-react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   BrowserRouter,
+  Link,
   Navigate,
   Route,
   Routes,
@@ -8,29 +10,49 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { api, waitForJob, type SyncResult } from "./api";
-import {
-  cachedSimilar,
-  cachedSnapshot,
-  loadDictionary,
-} from "./cache";
+import { cachedSimilar, cachedSnapshot, loadDictionary } from "./cache";
 import { SyncResultsDialog } from "./components/SyncResultsDialog";
+import { Badge } from "./components/ui/badge";
+import { Card, CardContent, CardHeader } from "./components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "./components/ui/empty";
+import { Item, ItemContent, ItemGroup, ItemTitle } from "./components/ui/item";
+import { Spinner } from "./components/ui/spinner";
+import { Button } from "./components/ui/button";
 import { LoginPage } from "./pages/LoginPage";
 import { ImportPage } from "./pages/ImportPage";
 import { goBack } from "./navigation";
 import { CorrectionsPage } from "./pages/CorrectionsPage";
 import { DuplicatesPage } from "./pages/DuplicatesPage";
 import { SetupPage } from "./pages/SetupPage";
-import { WordPage } from "./pages/WordPage";
 import type { Snapshot, Status } from "./types";
 import { wordPath } from "./wordPath";
 
 let automaticSyncStarted = false;
+const WordPage = lazy(() => import("./pages/WordPage"));
 
-function WordRoute({ snapshot, status, similar, onSync }: {
+function LoadingScreen() {
+  return (
+    <main className="screen active loading-screen">
+      <Empty role="status">
+        <EmptyHeader>
+          <Spinner aria-hidden="true" />
+          <EmptyTitle>Loading KanjiGraph…</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
+    </main>
+  );
+}
+
+function WordRoute({
+  snapshot,
+  status,
+  similar,
+  onSync,
+}: {
   snapshot: Snapshot | null;
   status: Status | null;
   similar: Record<string, string[]>;
-  onSync: () => Promise<SyncResult | null>;
+  onSync: (returnFocus?: HTMLElement) => Promise<SyncResult | null>;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -38,12 +60,18 @@ function WordRoute({ snapshot, status, similar, onSync }: {
   const spelling = params.get("spelling");
   const reading = params.get("reading");
   const normalizedSpelling = spelling?.normalize("NFC") || "";
-  const normalizedReading = reading?.normalize("NFC").replace(/[ァ-ヶ]/g, (char) =>
-    String.fromCharCode(char.charCodeAt(0) - 96),
-  ) || "";
-  const matches = snapshot?.words.filter((word) =>
-    word.spelling === normalizedSpelling && (!normalizedReading || word.reading === normalizedReading),
-  ) ?? [];
+  const normalizedReading =
+    reading
+      ?.normalize("NFC")
+      .replace(/[ァ-ヶ]/g, (char) =>
+        String.fromCharCode(char.charCodeAt(0) - 96),
+      ) || "";
+  const matches =
+    snapshot?.words.filter(
+      (word) =>
+        word.spelling === normalizedSpelling &&
+        (!normalizedReading || word.reading === normalizedReading),
+    ) ?? [];
   const word = matches.length === 1 ? matches[0] : undefined;
 
   useEffect(() => {
@@ -61,31 +89,61 @@ function WordRoute({ snapshot, status, similar, onSync }: {
 
   if (snapshot) {
     if (matches.length <= 1)
-      return <WordPage snapshot={snapshot} word={word} config={status?.config || null}
-        hasAnkiSession={Boolean(status?.hasAnkiSession)} similar={similar} onSync={onSync} />;
+      return (
+        <Suspense fallback={<LoadingScreen />}>
+          <WordPage
+            snapshot={snapshot}
+            word={word}
+            config={status?.config || null}
+            hasAnkiSession={Boolean(status?.hasAnkiSession)}
+            similar={similar}
+            onSync={onSync}
+          />
+        </Suspense>
+      );
     return (
       <main className="screen active">
-        <div className="setup-window">
-          <header className="setup-header">
-            <button className="icon-button" type="button" aria-label="Back" onClick={() => goBack(navigate, snapshot.words[0] ? wordPath(snapshot.words[0]) : "/setup")}>←</button>
+        <Card className="setup-window gap-0 py-0">
+          <CardHeader className="setup-header">
+            <Button
+              variant="ghost"
+              size="icon-lg"
+              type="button"
+              aria-label="Back"
+              onClick={() =>
+                goBack(
+                  navigate,
+                  snapshot.words[0] ? wordPath(snapshot.words[0]) : "/setup",
+                )
+              }
+            >
+              <ArrowLeftIcon className="size-5" aria-hidden="true" />
+            </Button>
             <h1>Choose a reading</h1>
-          </header>
-          <div className="choice-list">
-            {matches.map((word) => (
-              <button
-                key={word.wordId}
-                className="word-row"
-                type="button"
-                onClick={() =>
-                  navigate(wordPath(word), { replace: true })
-                }
-              >
-                {word.spelling}{" "}
-                <span className="word-row-meaning">{word.reading}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+          </CardHeader>
+          <CardContent className="setup-content">
+            <ItemGroup
+              role="group"
+              aria-label="Available readings"
+              className="gap-2"
+            >
+              {matches.map((word) => (
+                <Item asChild key={word.wordId} variant="outline">
+                  <Link
+                    to={wordPath(word)}
+                    replace
+                    className="text-foreground no-underline"
+                  >
+                    <ItemContent>
+                      <ItemTitle>{word.spelling}</ItemTitle>
+                    </ItemContent>
+                    <Badge variant="secondary">{word.reading}</Badge>
+                  </Link>
+                </Item>
+              ))}
+            </ItemGroup>
+          </CardContent>
+        </Card>
       </main>
     );
   }
@@ -100,29 +158,46 @@ function Application() {
   const [similar, setSimilar] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [dictionaryProgress, setDictionaryProgress] = useState("");
-  const [syncIssues, setSyncIssues] = useState<{ unresolvedCount: number; duplicateCount: number } | null>(null);
+  const [syncIssues, setSyncIssues] = useState<{
+    unresolvedCount: number;
+    duplicateCount: number;
+    returnFocus?: HTMLElement;
+  } | null>(null);
   const pendingSync = useRef<Promise<SyncResult | null> | null>(null);
+  const syncReturnFocus = useRef<HTMLElement | undefined>(undefined);
 
-  function onSynced({ snapshot: updated, newUnresolved, newDuplicates }: SyncResult) {
+  function onSynced(
+    { snapshot: updated, newUnresolved, newDuplicates }: SyncResult,
+    returnFocus?: HTMLElement,
+  ) {
     if (updated) setSnapshot(updated);
     if (newUnresolved.length || newDuplicates.length) {
-      setSyncIssues({ unresolvedCount: newUnresolved.length, duplicateCount: newDuplicates.length });
+      setSyncIssues({
+        unresolvedCount: newUnresolved.length,
+        duplicateCount: newDuplicates.length,
+        returnFocus,
+      });
     }
   }
 
-  function syncDeck(shouldApply?: () => Promise<boolean>): Promise<SyncResult | null> {
+  function syncDeck(
+    shouldApply?: () => Promise<boolean>,
+    returnFocus?: HTMLElement,
+  ): Promise<SyncResult | null> {
+    if (returnFocus) syncReturnFocus.current = returnFocus;
     if (!pendingSync.current) {
       async function runSync() {
         const { jobId } = await api.sync();
         const downloaded = await waitForJob(jobId);
         if (shouldApply && !(await shouldApply())) return null;
         const result = await api.applySync(downloaded);
-        onSynced(result);
+        onSynced(result, syncReturnFocus.current);
         return result;
       }
 
       pendingSync.current = runSync().finally(() => {
         pendingSync.current = null;
+        syncReturnFocus.current = undefined;
       });
     }
     return pendingSync.current;
@@ -151,16 +226,23 @@ function Application() {
           automaticSyncStarted = true;
           void syncDeck(async () => {
             const latestStatus = await api.status();
-            return Boolean(latestStatus.config) &&
-              JSON.stringify(latestStatus.config) === JSON.stringify(current.config) &&
-              !["/import", "/login"].includes(window.location.pathname);
+            return (
+              Boolean(latestStatus.config) &&
+              JSON.stringify(latestStatus.config) ===
+                JSON.stringify(current.config) &&
+              !["/import", "/login"].includes(window.location.pathname)
+            );
           }).catch(() => {
             automaticSyncStarted = false;
           });
         }
-        void api.manifest().then((manifest) => loadDictionary(manifest, (done, total) =>
-          setDictionaryProgress(`Loading dictionary ${done}/${total}`),
-        ))
+        void api
+          .manifest()
+          .then((manifest) =>
+            loadDictionary(manifest, (done, total) =>
+              setDictionaryProgress(`Loading dictionary ${done}/${total}`),
+            ),
+          )
           .then(async () => {
             if (active) {
               setSimilar(await cachedSimilar());
@@ -168,7 +250,8 @@ function Application() {
             }
           })
           .catch(() => {
-            if (active && navigator.onLine) setDictionaryProgress("Dictionary download paused");
+            if (active && navigator.onLine)
+              setDictionaryProgress("Dictionary download paused");
           });
       } catch {
         if (active)
@@ -188,12 +271,7 @@ function Application() {
     };
   }, []);
 
-  if (loading)
-    return (
-      <main className="screen active loading-screen">
-        <div className="loading-indicator">Loading KanjiGraph…</div>
-      </main>
-    );
+  if (loading) return <LoadingScreen />;
 
   const firstWord = snapshot?.words[0];
   const entry = firstWord
@@ -205,7 +283,15 @@ function Application() {
     <>
       <Routes>
         <Route path="/" element={<Navigate to={entry} replace />} />
-        <Route path="/import" element={<ImportPage status={status} fallback={firstWord ? wordPath(firstWord) : "/login"} />} />
+        <Route
+          path="/import"
+          element={
+            <ImportPage
+              status={status}
+              fallback={firstWord ? wordPath(firstWord) : "/login"}
+            />
+          }
+        />
         <Route path="/login" element={<LoginPage status={status} />} />
         <Route
           path="/setup"
@@ -233,7 +319,10 @@ function Application() {
           path="/duplicates"
           element={
             status?.hasCollection ? (
-              <DuplicatesPage initialConfig={status.config} snapshotVersion={snapshot?.snapshotVersion} />
+              <DuplicatesPage
+                initialConfig={status.config}
+                snapshotVersion={snapshot?.snapshotVersion}
+              />
             ) : (
               <Navigate to={entry} replace />
             )
@@ -243,15 +332,26 @@ function Application() {
           path="/corrections"
           element={
             status?.hasCollection ? (
-              <CorrectionsPage initialConfig={status.config} onSnapshot={setSnapshot} />
+              <CorrectionsPage
+                initialConfig={status.config}
+                onSnapshot={setSnapshot}
+              />
             ) : (
               <Navigate to={entry} replace />
             )
           }
         />
-        <Route path="/word" element={
-          <WordRoute snapshot={snapshot} status={status} similar={similar} onSync={syncDeck} />
-        } />
+        <Route
+          path="/word"
+          element={
+            <WordRoute
+              snapshot={snapshot}
+              status={status}
+              similar={similar}
+              onSync={(returnFocus) => syncDeck(undefined, returnFocus)}
+            />
+          }
+        />
         <Route path="*" element={<Navigate to={entry} replace />} />
       </Routes>
       {syncIssues && (
@@ -264,9 +364,16 @@ function Application() {
         />
       )}
       {dictionaryProgress && (
-        <div className="dictionary-progress" role="status">
+        <Badge
+          variant="secondary"
+          className="fixed bottom-4 left-4"
+          role="status"
+        >
+          {dictionaryProgress.startsWith("Loading") && (
+            <Spinner aria-hidden="true" />
+          )}
           {dictionaryProgress}
-        </div>
+        </Badge>
       )}
     </>
   );

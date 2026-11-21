@@ -1,7 +1,20 @@
+import { Separator } from "../components/ui/separator";
+import { Spinner } from "../components/ui/spinner";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardFooter,
+  CardDescription,
+} from "../components/ui/card";
+import { ArrowLeftIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { ReplaceDeckDialog } from "../components/ReplaceDeckDialog";
+import { FormError } from "../components/FormError";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 import { goBack } from "../navigation";
 import type { Status } from "../types";
 
@@ -12,27 +25,31 @@ export function ImportPage({ status, fallback }: Props) {
   const upload = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [pendingImport, setPendingImport] = useState<"account" | "file" | null>(null);
+  const [pendingImport, setPendingImport] = useState<{
+    kind: "account" | "file";
+    trigger: HTMLButtonElement;
+  } | null>(null);
 
   function cancelReplacement() {
     setPendingImport(null);
     if (upload.current) upload.current.value = "";
   }
 
-  function requestAccountSwitch() {
-    if (status?.hasCollection) setPendingImport("account");
+  function requestAccountSwitch(trigger: HTMLButtonElement) {
+    if (status?.hasCollection) setPendingImport({ kind: "account", trigger });
     else navigate("/login");
   }
 
-  function requestFileSelection() {
-    if (status?.hasCollection) setPendingImport("file");
+  function requestFileSelection(trigger: HTMLButtonElement) {
+    if (status?.hasCollection) setPendingImport({ kind: "file", trigger });
     else upload.current?.click();
   }
 
   function confirmReplacement() {
-    const choice = pendingImport;
+    const choice = pendingImport?.kind;
     setPendingImport(null);
-    if (choice === "account") navigate("/login", { state: { replaceDeckConfirmed: true } });
+    if (choice === "account")
+      navigate("/login", { state: { replaceDeckConfirmed: true } });
     else if (choice === "file") upload.current?.click();
   }
 
@@ -53,49 +70,127 @@ export function ImportPage({ status, fallback }: Props) {
 
   return (
     <main className="screen active">
-      <div className="setup-window">
-        <header className="setup-header">
-          <button className="icon-button" type="button" aria-label="Back" onClick={() => goBack(navigate, fallback)}>←</button>
+      <Card className="setup-window gap-0 py-0">
+        <CardHeader className="setup-header">
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            type="button"
+            aria-label="Back"
+            onClick={() => goBack(navigate, fallback)}
+          >
+            <ArrowLeftIcon className="size-5" aria-hidden="true" />
+          </Button>
           <h1>Import deck</h1>
-        </header>
-        <div className="setup-content import-content">
-          <div className="import-options">
-            <div className="import-intro">
-              <span className="import-eyebrow">GET STARTED</span>
-              <h2>Bring your deck into KanjiGraph</h2>
-              <p>Connect AnkiWeb or choose a deck file to see your words and their connections.</p>
+        </CardHeader>
+        <CardContent className="setup-content flex flex-col justify-center-safe">
+          <div className="mx-auto w-full max-w-xl text-center">
+            <div className="mb-6">
+              <h2 className="m-0 mb-2 text-xl font-semibold">
+                Bring your deck into KanjiGraph
+              </h2>
+              <p className="m-0 text-sm text-muted-foreground">
+                Connect AnkiWeb or choose a deck file to see your words and
+                their connections.
+              </p>
             </div>
-            {status?.hasCollection && <button className="primary-button import-continue" type="button" onClick={() => navigate("/setup")}>Continue</button>}
-            <section className="import-option">
-              <span className="import-option-icon" aria-hidden="true">↻</span>
-              <h3>AnkiWeb</h3>
-              {status?.hasAnkiSession ? (
-                <>
-                  <p className="import-account">Connected as <strong>{status.ankiAccount || "AnkiWeb account"}</strong></p>
-                  <p>Import your studied cards from AnkiWeb.</p>
-                  <button className="primary-button" type="button" disabled={busy} onClick={requestAccountSwitch}>Switch Account</button>
-                </>
-              ) : (
-                <>
-                  <p>Sign in to sync and import your studied cards from AnkiWeb.</p>
-                  <button className="primary-button" type="button" disabled={busy} onClick={requestAccountSwitch}>Sign in to AnkiWeb</button>
-                </>
-              )}
-            </section>
-            <div className="import-divider"><span>OR</span></div>
-            <section className="import-option">
-              <span className="import-option-icon" aria-hidden="true">↑</span>
-              <h3>Import deck directly from file</h3>
-              {status?.hasCollection && !status.hasAnkiSession && <p className="import-account">Current deck was imported from a file.</p>}
-              <p>Choose an Anki .apkg or .colpkg package with review history.</p>
-              <button className="secondary-button" type="button" disabled={busy} onClick={requestFileSelection}>Choose file</button>
-              <input ref={upload} className="visually-hidden" type="file" accept=".apkg,.colpkg" onChange={(event) => void importFile(event.target.files?.[0])} />
-            </section>
-            {error && <p className="form-error" role="alert">{error}</p>}
+            {status?.hasCollection && (
+              <Button
+                size="lg"
+                className="mb-6"
+                type="button"
+                disabled={busy}
+                onClick={() => navigate("/setup")}
+              >
+                Continue
+              </Button>
+            )}
+            <Card>
+              <CardHeader>
+                <h3 className="m-0 text-lg font-semibold">AnkiWeb</h3>
+                <CardDescription>
+                  {status?.hasAnkiSession ? (
+                    <>
+                      Connected as{" "}
+                      <strong>{status.ankiAccount || "AnkiWeb account"}</strong>
+                      . Import your studied cards from AnkiWeb.
+                    </>
+                  ) : (
+                    "Sign in to sync and import your studied cards from AnkiWeb."
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardFooter className="justify-center">
+                <Button
+                  size="lg"
+                  type="button"
+                  disabled={busy}
+                  onClick={(event) => requestAccountSwitch(event.currentTarget)}
+                >
+                  {status?.hasAnkiSession
+                    ? "Switch Account"
+                    : "Sign in to AnkiWeb"}
+                </Button>
+              </CardFooter>
+            </Card>
+            <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
+              <Separator className="flex-1" />
+              <span>OR</span>
+              <Separator className="flex-1" />
+            </div>
+            <Card>
+              <CardHeader>
+                <h3 className="m-0 text-lg font-semibold">
+                  Import deck directly from file
+                </h3>
+                <CardDescription>
+                  {status?.hasCollection && !status.hasAnkiSession && (
+                    <>
+                      Current deck was imported from a file.
+                      <br />
+                    </>
+                  )}
+                  Choose an Anki .apkg or .colpkg package with review history.
+                </CardDescription>
+              </CardHeader>
+              <CardFooter className="justify-center">
+                <Button
+                  size="lg"
+                  variant="outline"
+                  type="button"
+                  disabled={busy}
+                  aria-busy={busy}
+                  onClick={(event) => requestFileSelection(event.currentTarget)}
+                >
+                  {busy ? (
+                    <>
+                      <Spinner aria-hidden="true" /> Importing…
+                    </>
+                  ) : (
+                    "Choose file"
+                  )}
+                </Button>
+                <Input
+                  ref={upload}
+                  tabIndex={-1}
+                  className="sr-only"
+                  type="file"
+                  accept=".apkg,.colpkg"
+                  onChange={(event) => void importFile(event.target.files?.[0])}
+                />
+              </CardFooter>
+            </Card>
+            {error && <FormError message={error} />}
           </div>
-        </div>
-      </div>
-      {pendingImport && <ReplaceDeckDialog onCancel={cancelReplacement} onConfirm={confirmReplacement} />}
+        </CardContent>
+      </Card>
+      {pendingImport && (
+        <ReplaceDeckDialog
+          returnFocus={pendingImport.trigger}
+          onCancel={cancelReplacement}
+          onConfirm={confirmReplacement}
+        />
+      )}
     </main>
   );
 }

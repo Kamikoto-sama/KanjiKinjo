@@ -1,40 +1,45 @@
-import { useEffect, useRef } from "react";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
+import { Button } from "./ui/button";
+import { useDialogFocus } from "./useDialogFocus";
 
 type Props = {
   onCancel: () => void;
   onConfirm: () => void;
   description?: string;
+  returnFocus?: HTMLElement | null;
 };
 
 export function ReplaceDeckDialog({
   onCancel,
   onConfirm,
+  returnFocus,
   description = "Your current deck, field settings, and word corrections will be deleted when you import a new deck. You will start setup again.",
 }: Props) {
-  const cancelButton = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    cancelButton.current?.focus();
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onCancel();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onCancel]);
-
+  const focus = useDialogFocus(returnFocus);
   return (
-    <div className="dialog-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onCancel();
-    }}>
-      <section className="confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="replace-deck-title" aria-describedby="replace-deck-description">
-        <div className="confirmation-icon" aria-hidden="true">!</div>
-        <h2 id="replace-deck-title">Replace current deck?</h2>
-        <p id="replace-deck-description">{description}</p>
-        <div className="confirmation-actions">
-          <button ref={cancelButton} className="secondary-button" type="button" onClick={onCancel}>Cancel</button>
-          <button className="danger-button" type="button" onClick={onConfirm}>Continue</button>
-        </div>
-      </section>
-    </div>
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+    >
+      <AlertDialogContent {...focus} onBackdropClick={onCancel}>
+        <AlertDialogTitle>Replace current deck?</AlertDialogTitle>
+        <AlertDialogDescription>{description}</AlertDialogDescription>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <Button type="button" variant="destructive" onClick={onConfirm}>
+            Continue
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

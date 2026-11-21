@@ -1,3 +1,7 @@
+import { Field, FieldLabel } from "./ui/field";
+import { useId } from "react";
+import { NativeSelect, NativeSelectOption } from "./ui/native-select";
+
 type Props = {
   label: string;
   value: string;
@@ -15,26 +19,22 @@ export function MappingField({
   disabled,
   emptyLabel = "Use dictionary",
 }: Props) {
-  const id = label.toLowerCase().replace(/\W+/g, "-");
+  const id = useId();
   return (
-    <div className="mapping-field">
-      <label className="field-label" htmlFor={id}>
-        {label}
-      </label>
-      <div className="select-wrap">
-        <select
-          id={id}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          disabled={disabled}
-        >
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option || emptyLabel}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
+    <Field className="min-w-0 gap-1.5">
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <NativeSelect
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+      >
+        {options.map((option) => (
+          <NativeSelectOption key={option} value={option}>
+            {option || emptyLabel}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+    </Field>
   );
 }

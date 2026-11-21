@@ -1,7 +1,14 @@
+import { Empty, EmptyHeader, EmptyTitle } from "../components/ui/empty";
+import { ItemGroup } from "../components/ui/item";
+import { Spinner } from "../components/ui/spinner";
+import { Card, CardContent, CardHeader } from "../components/ui/card";
+import { ArrowLeftIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { RecordRow } from "../components/RecordRow";
+import { FormError } from "../components/FormError";
+import { Button } from "../components/ui/button";
 import { goBack } from "../navigation";
 import { readSetupDraft } from "../setupDraft";
 import type { Config, DuplicateGroup } from "../types";
@@ -11,10 +18,13 @@ type Props = { initialConfig: Config | null; snapshotVersion?: string };
 export function DuplicatesPage({ initialConfig, snapshotVersion }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
-  const noteTypeId = Number(new URLSearchParams(location.search).get("type")) || null;
+  const noteTypeId =
+    Number(new URLSearchParams(location.search).get("type")) || null;
   const [draft] = useState(readSetupDraft);
   const config = draft || initialConfig;
-  const [previewGroups, setPreviewGroups] = useState<DuplicateGroup[] | null>(null);
+  const [previewGroups, setPreviewGroups] = useState<DuplicateGroup[] | null>(
+    null,
+  );
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -22,47 +32,83 @@ export function DuplicatesPage({ initialConfig, snapshotVersion }: Props) {
     let active = true;
     setPreviewGroups(null);
     setError("");
-    api.preview(config)
+    api
+      .preview(config)
       .then((preview) => {
         if (active) setPreviewGroups(preview.duplicateGroups);
       })
       .catch((reason) => {
-        if (active) setError(reason instanceof Error ? reason.message : "Could not load duplicates");
+        if (active)
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Could not load duplicates",
+          );
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [config, snapshotVersion]);
 
-  const visibleGroups = previewGroups?.filter(({ records }) =>
-    noteTypeId === null || records.some((record) => record.noteTypeId === noteTypeId),
+  const visibleGroups = previewGroups?.filter(
+    ({ records }) =>
+      noteTypeId === null ||
+      records.some((record) => record.noteTypeId === noteTypeId),
   );
 
   return (
     <main className="screen active">
-      <div className="setup-window">
-        <header className="setup-header">
-          <button className="icon-button" type="button" aria-label="Back" onClick={() => goBack(navigate, "/setup")}>←</button>
+      <Card className="setup-window gap-0 py-0">
+        <CardHeader className="setup-header">
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            type="button"
+            aria-label="Back"
+            onClick={() => goBack(navigate, "/setup")}
+          >
+            <ArrowLeftIcon className="size-5" aria-hidden="true" />
+          </Button>
           <h1>Duplicate words</h1>
-        </header>
-        <div className="setup-content">
+        </CardHeader>
+        <CardContent className="setup-content">
           {error ? (
-            <p className="form-error" role="alert">{error}</p>
+            <FormError message={error} />
           ) : !config ? (
-            <div className="empty-state">Choose a deck and fields first.</div>
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>Choose a deck and fields first.</EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : !visibleGroups ? (
-            <div className="empty-state" role="status">Checking words…</div>
+            <Empty role="status">
+              <Spinner aria-hidden="true" />
+              Checking words…
+            </Empty>
           ) : !visibleGroups.length ? (
-            <div className="empty-state">No duplicate words{noteTypeId === null ? "" : " in this card type"}.</div>
+            <Empty>
+              <EmptyHeader>
+                <EmptyTitle>
+                  No duplicate words
+                  {noteTypeId === null ? "" : " in this card type"}.
+                </EmptyTitle>
+              </EmptyHeader>
+            </Empty>
           ) : (
-            <ul className="duplicate-groups">
+            <ul className="m-0 grid list-none gap-4 p-0">
               {visibleGroups.map(({ wordId, records }) => (
-                <li className="preview-records" key={wordId}>
-                  {records.map((record) => <RecordRow key={record.noteId} word={record} />)}
+                <li key={wordId}>
+                  <ItemGroup className="gap-2">
+                    {records.map((record) => (
+                      <RecordRow key={record.noteId} word={record} />
+                    ))}
+                  </ItemGroup>
                 </li>
               ))}
             </ul>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </main>
   );
 }

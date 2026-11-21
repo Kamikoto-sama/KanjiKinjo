@@ -26,6 +26,7 @@ export function RubyText({
                 key={position}
                 className={selected === character ? "selected" : ""}
                 type="button"
+                aria-pressed={selected === character}
                 onClick={() => onKanji?.(character)}
                 aria-label={`Show words with ${character}${part.reading ? `; group reading ${part.reading}` : ""}`}
               >

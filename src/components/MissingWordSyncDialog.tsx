@@ -1,21 +1,31 @@
-import { useEffect, useRef, useState } from "react";
+import { useState, type RefObject } from "react";
 import type { SyncResult } from "../api";
+import { FormError } from "./FormError";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from "./ui/dialog";
+import { useDialogFocus } from "./useDialogFocus";
 
-export function MissingWordSyncDialog({ spelling, reading, onSync }: {
+export function MissingWordSyncDialog({
+  spelling,
+  reading,
+  onSync,
+  returnFocus,
+}: {
   spelling: string | null;
   reading: string | null;
   onSync: () => Promise<SyncResult | null>;
+  returnFocus: RefObject<HTMLButtonElement | null>;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, [open]);
+  const focus = useDialogFocus(returnFocus);
 
   async function sync() {
     setBusy(true);
@@ -29,34 +39,52 @@ export function MissingWordSyncDialog({ spelling, reading, onSync }: {
     }
   }
 
-  if (!open) return null;
-
   return (
-    <dialog
-      ref={dialogRef}
-      className="confirmation-dialog"
-      aria-labelledby="missing-word-sync-title"
-      aria-describedby="missing-word-sync-description"
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!busy) setOpen(false);
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!busy) setOpen(next);
       }}
     >
-      <h2 id="missing-word-sync-title">Word not found</h2>
-      <p id="missing-word-sync-description">
-        {spelling ? <>The word <strong>{spelling}</strong></> : "This word"}
-        {reading && <> with the reading <strong>{reading}</strong></>}
-        {" was not found among the studied words in this deck. The deck may be out of date. Sync the deck?"}
-      </p>
-      {error && <div className="form-error" role="alert">{error}</div>}
-      <div className="confirmation-actions">
-        <button className="secondary-button" type="button" disabled={busy} onClick={() => setOpen(false)}>
-          Cancel
-        </button>
-        <button className="primary-button" type="button" disabled={busy} onClick={sync}>
-          {busy ? "Syncing…" : "Sync"}
-        </button>
-      </div>
-    </dialog>
+      <DialogContent
+        {...focus}
+        showCloseButton={false}
+        onPointerDownOutside={(event) => event.preventDefault()}
+      >
+        <DialogTitle>Word not found</DialogTitle>
+        <DialogDescription>
+          {spelling ? (
+            <>
+              The word <strong>{spelling}</strong>
+            </>
+          ) : (
+            "This word"
+          )}
+          {reading && (
+            <>
+              {" "}
+              with the reading <strong>{reading}</strong>
+            </>
+          )}
+          {
+            " was not found among the studied words in this deck. The deck may be out of date. Sync the deck?"
+          }
+        </DialogDescription>
+        {error && <FormError message={error} />}
+        <DialogFooter>
+          <Button
+            variant="outline"
+            type="button"
+            disabled={busy}
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button type="button" disabled={busy} aria-busy={busy} onClick={sync}>
+            {busy ? "Syncing…" : "Sync"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

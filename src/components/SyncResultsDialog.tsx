@@ -1,56 +1,64 @@
-import { useEffect, useRef } from "react";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from "./ui/dialog";
+import { useDialogFocus } from "./useDialogFocus";
 
 type Props = {
   unresolvedCount: number;
   duplicateCount: number;
   onDismiss: () => void;
   onOpenSetup: () => void;
+  returnFocus?: HTMLElement;
 };
 
-export function SyncResultsDialog({ unresolvedCount, duplicateCount, onDismiss, onOpenSetup }: Props) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, []);
-
-  function dismiss() {
-    dialogRef.current?.close();
-    onDismiss();
-  }
-
+export function SyncResultsDialog({
+  unresolvedCount,
+  duplicateCount,
+  onDismiss,
+  onOpenSetup,
+  returnFocus,
+}: Props) {
+  const focus = useDialogFocus(returnFocus);
   return (
-    <dialog
-      ref={dialogRef}
-      className="confirmation-dialog sync-results-dialog"
-      aria-labelledby="sync-results-title"
-      aria-describedby="sync-results-summary"
-      onCancel={(event) => {
-        event.preventDefault();
-        dismiss();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") event.stopPropagation();
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onDismiss();
       }}
     >
-      <h2 id="sync-results-title">Review synced words</h2>
-      <div id="sync-results-summary">
-        {unresolvedCount > 0 && (
-          <p>{unresolvedCount} new {unresolvedCount === 1 ? "word" : "words"} cannot be imported.</p>
-        )}
-        {duplicateCount > 0 && (
-          <p>{duplicateCount} new duplicate {duplicateCount === 1 ? "record" : "records"} will be merged.</p>
-        )}
-      </div>
-      <div className="confirmation-actions">
-        <button className="secondary-button" type="button" onClick={dismiss}>Close</button>
-        <button className="primary-button" type="button" onClick={() => {
-          dismiss();
-          onOpenSetup();
-        }}>Deck &amp; fields</button>
-      </div>
-    </dialog>
+      <DialogContent {...focus} showCloseButton={false}>
+        <DialogTitle>Review synced words</DialogTitle>
+        <DialogDescription asChild>
+          <div className="grid gap-2">
+            {unresolvedCount > 0 && (
+              <p className="m-0">
+                {unresolvedCount} new {unresolvedCount === 1 ? "word" : "words"}{" "}
+                cannot be imported.
+              </p>
+            )}
+            {duplicateCount > 0 && (
+              <p className="m-0">
+                {duplicateCount} new duplicate{" "}
+                {duplicateCount === 1 ? "record" : "records"} will be merged.
+              </p>
+            )}
+          </div>
+        </DialogDescription>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">Close</Button>
+          </DialogClose>
+          <DialogClose asChild>
+            <Button onClick={onOpenSetup}>Deck &amp; fields</Button>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
