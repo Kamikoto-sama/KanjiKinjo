@@ -124,6 +124,7 @@ export function ImportPage({ status, fallback }: Props) {
                 <Button
                   size="lg"
                   type="button"
+                  variant="outline"
                   disabled={busy}
                   onClick={(event) => requestAccountSwitch(event.currentTarget)}
                 >

@@ -1,7 +1,16 @@
-import { ArrowLeftIcon, EllipsisIcon, RefreshCwIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  EllipsisIcon,
+  ImportIcon,
+  Link2Icon,
+  RefreshCwIcon,
+  SearchIcon,
+  SlidersHorizontal,
+} from "lucide-react";
 import {
   Fragment,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -97,6 +106,7 @@ export default function WordPage({
   const navigate = useNavigate();
   const location = useLocation();
   const [params] = useSearchParams();
+  const deckIconMaskId = useId();
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
   const [noteTypes, setNoteTypes] = useState<NoteType[]>([]);
@@ -538,12 +548,15 @@ export default function WordPage({
                     else navigate("/search");
                   }}
                 >
+                  <SearchIcon aria-hidden="true" />
                   Search words
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => navigate("/import")}>
+                  <ImportIcon aria-hidden="true" />
                   Re-import deck
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => navigate("/setup")}>
+                  <SlidersHorizontal aria-hidden="true" />
                   Configure Deck &amp; fields
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -552,6 +565,7 @@ export default function WordPage({
                     setLinkDialogOpen(true);
                   }}
                 >
+                  <Link2Icon aria-hidden="true" />
                   Show card link template
                 </DropdownMenuItem>
               </DropdownMenuContent>
