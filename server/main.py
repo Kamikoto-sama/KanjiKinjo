@@ -45,7 +45,7 @@ class SyncInput(BaseModel):
     email: str = ""
 
 
-app = FastAPI(title="KanjiGraph API")
+app = FastAPI(title="KanjiKinjo API")
 
 
 @app.middleware("http")

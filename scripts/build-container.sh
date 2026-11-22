@@ -13,7 +13,7 @@ case "${1:-}" in
         ;;
 esac
 
-image_tag=${1:-kamikoto/kanjigraph:latest}
+image_tag=${1:-kamikoto/kanjikinjo:latest}
 if [ "$#" -gt 1 ] || [ "${image_tag#-}" != "$image_tag" ]; then
     printf '%s\n' "Usage: $0 [--push] [image-tag]" >&2
     exit 2

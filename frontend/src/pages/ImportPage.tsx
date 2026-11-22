@@ -89,7 +89,7 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
           <div className="mx-auto w-full max-w-xl text-center">
             <div className="mb-6">
               <h2 className="m-0 mb-2 text-xl font-semibold">
-                Bring your deck into KanjiGraph
+                Bring your deck into KanjiKinjo
               </h2>
               <p className="m-0 text-sm text-muted-foreground">
                 Connect AnkiWeb or choose a deck file to see your words and

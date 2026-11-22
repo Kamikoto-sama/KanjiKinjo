@@ -7,7 +7,7 @@ export function LoadingScreen() {
       <Empty role="status">
         <EmptyHeader>
           <Spinner aria-hidden="true" />
-          <EmptyTitle>Loading KanjiGraph…</EmptyTitle>
+          <EmptyTitle>Loading KanjiKinjo…</EmptyTitle>
         </EmptyHeader>
       </Empty>
     </main>

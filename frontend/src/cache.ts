@@ -23,7 +23,7 @@ class Cache extends Dexie {
   dictionaryWords!: Table<DictionaryWord, string>;
 
   constructor() {
-    super("KanjiGraph");
+    super("KanjiKinjo");
     this.version(1).stores({
       values: "key",
       dictionaryWords: "[datasetVersion+wordId],datasetVersion,spelling",

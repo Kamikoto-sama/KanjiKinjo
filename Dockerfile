@@ -15,7 +15,7 @@ RUN pip install --no-cache-dir -r server/requirements.txt
 COPY server ./server
 COPY data/dictionary ./data/dictionary
 COPY --from=web /app/frontend/dist ./frontend/dist
-RUN useradd --uid 10001 --create-home kanjigraph
-USER kanjigraph
+RUN useradd --uid 10001 --create-home kanjikinjo
+USER kanjikinjo
 EXPOSE 8000
 CMD ["uvicorn", "server.main:app", "--host", "0.0.0.0", "--port", "8000"]

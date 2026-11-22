@@ -64,7 +64,7 @@ export function CardLinkTemplateDialog({
         <DialogTitle>Card link template</DialogTitle>
         <DialogDescription>
           Add this link to an Anki card template to open the matching studied
-          word in KanjiGraph. Anki replaces the field names with values from
+          word in KanjiKinjo. Anki replaces the field names with values from
           each card. Use each link in the card templates belonging to the named
           note type.
         </DialogDescription>

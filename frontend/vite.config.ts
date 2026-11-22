@@ -11,10 +11,10 @@ export default defineConfig(({ mode }) => ({
     tailwindcss(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["icon.svg"],
+      includeAssets: ["icon.svg", "icon-maskable.svg"],
       manifest: {
-        name: "KanjiGraph",
-        short_name: "KanjiGraph",
+        name: "KanjiKinjo",
+        short_name: "KanjiKinjo",
         description: "Explore the words you have studied in Anki",
         theme_color: "#1d1e21",
         background_color: "#1d1e21",
@@ -24,7 +24,13 @@ export default defineConfig(({ mode }) => ({
             src: "/icon.svg",
             sizes: "any",
             type: "image/svg+xml",
-            purpose: "any maskable",
+            purpose: "any",
+          },
+          {
+            src: "/icon-maskable.svg",
+            sizes: "any",
+            type: "image/svg+xml",
+            purpose: "maskable",
           },
         ],
       },
@@ -35,7 +41,7 @@ export default defineConfig(({ mode }) => ({
     proxy: {
       "/api": {
         target:
-          loadEnv(mode, ".", "KANJIGRAPH_").KANJIGRAPH_API_TARGET ||
+          loadEnv(mode, ".", "KANJIKINJO_").KANJIKINJO_API_TARGET ||
           "http://127.0.0.1:8000",
         changeOrigin: false,
       },
