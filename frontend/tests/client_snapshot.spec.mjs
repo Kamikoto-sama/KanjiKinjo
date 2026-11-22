@@ -1,36 +1,43 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { test } from "node:test";
+import { test } from "@playwright/test";
 import { webcrypto } from "node:crypto";
-import ts from "typescript";
+import {
+  buildSnapshot,
+  collectionNoteTypes,
+  newDuplicateRecords,
+  prepareSnapshot,
+  readingFromRuby,
+  rubyFromAnnotation,
+} from "../src/snapshot.ts";
 
 globalThis.crypto ||= webcrypto;
 globalThis.DOMParser = class {
   parseFromString(source) {
-    return { body: { textContent: source.replace(/<[^>]+>/g, "").replaceAll("&amp;", "&") } };
+    return {
+      body: {
+        textContent: source.replace(/<[^>]+>/g, "").replaceAll("&amp;", "&"),
+      },
+    };
   }
 };
 
 const dictionary = [
-  { datasetVersion: "test", wordId: "dictionary-id", spelling: "転勤", reading: "てんきん",
-    ruby: [{ text: "転", reading: "てん" }, { text: "勤", reading: "きん" }] },
-];
-globalThis.__kanjigraphCache = {
-  dictionaryWords: {
-    where() {
-      return { equals(spelling) { return { async toArray() {
-        return dictionary.filter((word) => word.spelling === spelling);
-      } }; } };
-    },
+  {
+    datasetVersion: "test",
+    wordId: "dictionary-id",
+    spelling: "転勤",
+    reading: "てんきん",
+    ruby: [
+      { text: "転", reading: "てん" },
+      { text: "勤", reading: "きん" },
+    ],
   },
-};
-
-const source = await readFile(new URL("../src/snapshot.ts", import.meta.url), "utf8");
-const javascript = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
-}).outputText.replace('import { cache } from "./cache";', "const cache = globalThis.__kanjigraphCache;");
-const { buildSnapshot, collectionNoteTypes, newDuplicateRecords, previewSnapshot, readingFromRuby, rubyFromAnnotation } =
-  await import(`data:text/javascript;base64,${Buffer.from(javascript).toString("base64")}`);
+];
+async function lookup(spelling, version) {
+  return dictionary.filter(
+    (word) => word.spelling === spelling && word.datasetVersion === version,
+  );
+}
 
 const collection = {
   decks: [{ id: 1, name: "Study" }, { id: 2, name: "Study::Extra" }],
@@ -49,7 +56,12 @@ const config = {
 };
 
 test("client builds a deduplicated studied-word snapshot with subdecks", async () => {
-  const result = await buildSnapshot(collection, config, {}, "test");
+  const lookups = [];
+  const result = await buildSnapshot(collection, config, {}, "test", (spelling, version) => {
+    lookups.push([spelling, version]);
+    return lookup(spelling, version);
+  });
+  assert.deepEqual(lookups, [["転勤", "test"]]);
   assert.equal(result.words.length, 1);
   assert.equal(result.words[0].wordId, "dictionary-id");
   assert.deepEqual(result.words[0].noteIds, ["10", "11"]);
@@ -74,7 +86,7 @@ test("preview preserves the original records in each duplicate group across card
     },
   };
   const mapped = { ...config, mappings: { ...config.mappings, "4": config.mappings["3"] } };
-  const preview = await previewSnapshot(example, mapped, {}, "test");
+  const { preview } = await prepareSnapshot(example, mapped, {}, "test", lookup);
   assert.equal(preview.duplicateGroups.length, 1);
   const [{ wordId, records }] = preview.duplicateGroups;
   assert.equal(wordId, "dictionary-id");
@@ -83,13 +95,13 @@ test("preview preserves the original records in each duplicate group across card
     { noteId: "11", noteTypeId: 4, translations: ["transfer"] },
   ]);
   assert.deepEqual(records[1].ruby, [{ text: "転勤", reading: "てんきん" }]);
-  const withoutSubdecks = await previewSnapshot(example, { ...mapped, includeChildren: false }, {}, "test");
+  const { preview: withoutSubdecks } = await prepareSnapshot(example, { ...mapped, includeChildren: false }, {}, "test", lookup);
   assert.deepEqual(withoutSubdecks.duplicateGroups, []);
 });
 
 test("sync detects newly duplicated records using both current and older snapshots", async () => {
-  const single = await buildSnapshot(collection, { ...config, includeChildren: false }, {}, "test");
-  const pair = await buildSnapshot(collection, config, {}, "test");
+  const single = await buildSnapshot(collection, { ...config, includeChildren: false }, {}, "test", lookup);
+  const pair = await buildSnapshot(collection, config, {}, "test", lookup);
   assert.deepEqual(newDuplicateRecords(single, pair).map((record) => record.noteId), ["10", "11"]);
 
   const previous = { ...pair };
@@ -103,7 +115,7 @@ test("sync detects newly duplicated records using both current and older snapsho
       "2": [...collection.studiedNotes["2"], { ...collection.studiedNotes["2"][0], id: "12" }],
     },
   };
-  const updated = await buildSnapshot(example, config, {}, "test");
+  const updated = await buildSnapshot(example, config, {}, "test", lookup);
   assert.deepEqual(newDuplicateRecords(previous, updated).map((record) => record.noteId), ["12"]);
   assert.deepEqual(updated.words[0].translations, ["job transfer", "transfer"]);
 });

@@ -15,7 +15,7 @@ from zstandard import ZstdError
 from .anki_sync import login, sync
 from .dictionary import DICTIONARY, manifest
 from .importer import CollectionTooLarge, import_package
-from .jobs import get_job, start_job
+from .jobs import RETRY_AFTER, JobCapacityError, get_job, start_job
 
 MAX_PACKAGE_BYTES = 256 * 1024 * 1024
 MAX_MULTIPART_BYTES = MAX_PACKAGE_BYTES + 1024 * 1024
@@ -71,14 +71,24 @@ async def same_origin(request: Request, call_next):
 
 @app.post("/api/anki/login")
 def anki_login(payload: LoginInput):
-    return {"jobId": start_job(login, payload.email, payload.password)}
+    return enqueue_job(login, payload.email, payload.password)
 
 
 @app.post("/api/anki/sync")
 def anki_sync(payload: SyncInput):
     if not payload.hkey:
         raise HTTPException(400, "Sign in to AnkiWeb first")
-    return {"jobId": start_job(sync, payload.hkey, payload.endpoint, payload.email)}
+    return enqueue_job(sync, payload.hkey, payload.endpoint, payload.email)
+
+
+def enqueue_job(action, *args):
+    try:
+        return {"jobId": start_job(action, *args)}
+    except JobCapacityError as error:
+        raise HTTPException(
+            429, "Anki jobs are at capacity; try again shortly",
+            headers={"Retry-After": RETRY_AFTER},
+        ) from error
 
 
 @app.get("/api/jobs/{identifier}")

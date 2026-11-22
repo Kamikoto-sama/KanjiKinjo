@@ -1,0 +1,175 @@
+import {
+  ArrowLeftIcon,
+  EllipsisIcon,
+  ImportIcon,
+  Link2Icon,
+  RefreshCwIcon,
+  SearchIcon,
+  SlidersHorizontal,
+} from "lucide-react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import type { SyncResult } from "../api";
+import { goBack } from "../navigation";
+import type { Config, Snapshot } from "../types";
+import { CardLinkTemplateDialog } from "./CardLinkTemplateDialog";
+import { Button } from "./ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import { Spinner } from "./ui/spinner";
+import { Toaster } from "./ui/sonner";
+
+export type WordHeaderProps = {
+  snapshot: Snapshot;
+  config: Config | null;
+  hasAnkiSession: boolean;
+  onSync: (returnFocus?: HTMLElement) => Promise<SyncResult | null>;
+};
+
+export function WordLayout({
+  snapshot,
+  config,
+  hasAnkiSession,
+  onSync,
+  searchInput,
+  menuButton,
+  children,
+  after,
+}: WordHeaderProps & {
+  searchInput?: RefObject<HTMLInputElement | null>;
+  menuButton: RefObject<HTMLButtonElement | null>;
+  children: ReactNode;
+  after?: ReactNode;
+}) {
+  const navigate = useNavigate();
+  const focusSearchOnClose = useRef(false);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  async function sync(trigger: HTMLButtonElement) {
+    setBusy(true);
+    try {
+      const result = await onSync(trigger);
+      if (
+        result &&
+        !result.newUnresolved.length &&
+        !result.newDuplicates.length
+      )
+        toast.success("Deck synced");
+    } catch (reason) {
+      toast.error(reason instanceof Error ? reason.message : "Sync failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="screen active word-screen">
+      <div className="word-window">
+        <header className="word-header">
+          <Button
+            variant="ghost"
+            size="icon-lg"
+            type="button"
+            aria-label="Back"
+            onClick={() => goBack(navigate, searchInput ? "/setup" : "/search")}
+          >
+            <ArrowLeftIcon className="size-5" aria-hidden="true" />
+          </Button>
+          <div className="deck-heading">
+            <strong>{snapshot.deck.name}</strong>
+            <span>
+              Last synced{" "}
+              {new Date(snapshot.syncedAt).toLocaleString("en-GB", {
+                day: "numeric",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          </div>
+          <div className="header-actions">
+            {hasAnkiSession && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="sync-button"
+                type="button"
+                disabled={busy}
+                aria-busy={busy}
+                onClick={(event) => void sync(event.currentTarget)}
+              >
+                {busy ? (
+                  <Spinner aria-hidden="true" />
+                ) : (
+                  <RefreshCwIcon aria-hidden="true" />
+                )}
+                {busy ? "Syncing…" : "Sync"}
+              </Button>
+            )}
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  ref={menuButton}
+                  variant="ghost"
+                  size="icon-sm"
+                  type="button"
+                  aria-label="Open menu"
+                >
+                  <EllipsisIcon className="size-5" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onCloseAutoFocus={(event) => {
+                  if (focusSearchOnClose.current) {
+                    focusSearchOnClose.current = false;
+                    event.preventDefault();
+                    searchInput?.current?.focus();
+                  }
+                  if (linkDialogOpen) event.preventDefault();
+                }}
+              >
+                <DropdownMenuItem
+                  onSelect={() => {
+                    if (searchInput) focusSearchOnClose.current = true;
+                    else navigate("/search");
+                  }}
+                >
+                  <SearchIcon aria-hidden="true" />
+                  Search words
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/import")}>
+                  <ImportIcon aria-hidden="true" />
+                  Re-import deck
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/setup")}>
+                  <SlidersHorizontal aria-hidden="true" />
+                  Configure Deck &amp; fields
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setLinkDialogOpen(true)}>
+                  <Link2Icon aria-hidden="true" />
+                  Show card link template
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </header>
+
+        {children}
+      </div>
+      {after}
+      <CardLinkTemplateDialog
+        config={config}
+        open={linkDialogOpen}
+        onOpenChange={setLinkDialogOpen}
+        returnFocus={menuButton}
+      />
+      <Toaster closeButton />
+    </main>
+  );
+}

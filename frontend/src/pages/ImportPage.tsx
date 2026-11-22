@@ -16,11 +16,15 @@ import { FormError } from "../components/FormError";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { goBack } from "../navigation";
-import type { Status } from "../types";
+import type { CollectionData, Status } from "../types";
 
-type Props = { status: Status | null; fallback: string };
+type Props = {
+  status: Status | null;
+  fallback: string;
+  onReplace: (collection: CollectionData, auth: null) => Promise<void>;
+};
 
-export function ImportPage({ status, fallback }: Props) {
+export function ImportPage({ status, fallback, onReplace }: Props) {
   const navigate = useNavigate();
   const upload = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -58,9 +62,7 @@ export function ImportPage({ status, fallback }: Props) {
     setBusy(true);
     setError("");
     try {
-      await api.importFile(file);
-      sessionStorage.removeItem("setupDraft");
-      window.location.assign("/setup");
+      await onReplace(await api.importFile(file), null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Import failed");
       setBusy(false);

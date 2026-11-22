@@ -1,13 +1,58 @@
-import { cache, loadDictionary, localState, replaceCollection, saveConfigAndSnapshot,
-  saveCorrection as storeCorrection, saveSyncedCollection } from "./cache";
-import { buildSnapshot, collectionDecks, collectionNoteTypes, newDuplicateRecords, previewSnapshot, validateCorrection } from "./snapshot";
-import type { Config, Deck, DownloadResult, DuplicateRecord, Mapping, NoteType, Preview, Snapshot, Status, UnresolvedWord } from "./types";
+import {
+  cachedSnapshot,
+  loadDictionary,
+  lookupDictionary,
+  publishCorrectedSnapshot,
+  readCollection,
+  readSnapshotInputs,
+  readSourceVersion,
+  readSyncSource,
+  sameCollectionContent,
+  sameSnapshotInputs,
+  saveConfigAndSnapshot,
+  saveCorrection as storeCorrection,
+  saveSyncedCollection,
+  type SourceVersion,
+} from "./cache";
+import {
+  buildSnapshot,
+  collectionDecks,
+  collectionNoteTypes,
+  newDuplicateRecords,
+  prepareSnapshot,
+  validateCorrection,
+} from "./snapshot";
+import type {
+  CollectionData,
+  Config,
+  DownloadResult,
+  DuplicateRecord,
+  Mapping,
+  NoteType,
+  Preview,
+  Snapshot,
+  UnresolvedWord,
+} from "./types";
+
+class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, { cache: "no-store", ...init });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(typeof body?.detail === "string" ? body.detail : `Request failed (${response.status})`);
+    throw new HttpError(
+      typeof body?.detail === "string"
+        ? body.detail
+        : `Request failed (${response.status})`,
+      response.status,
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -20,7 +65,12 @@ const json = (body: unknown) => ({
 export type DictionaryManifest = {
   schemaVersion: number;
   datasetVersion: string;
-  files: { path: string; bytes: number; sha256: string; kind: "words" | "similar" }[];
+  files: {
+    path: string;
+    bytes: number;
+    sha256: string;
+    kind: "words" | "similar";
+  }[];
   sources: { name: string; version: string; url: string; license: string }[];
 };
 
@@ -30,125 +80,279 @@ export type SyncResult = {
   newDuplicates: DuplicateRecord[];
 };
 
-async function dictionaryVersion(): Promise<string> {
-  const stored = (await cache.values.get("dictionaryVersion"))?.value as string | undefined;
-  if (stored) return stored;
+type SnapshotInputs = Awaited<ReturnType<typeof readSnapshotInputs>>;
+type SyncSource = Awaited<ReturnType<typeof readSyncSource>>["version"];
+
+export type PreparedSetup = {
+  config: Config;
+  source: SourceVersion;
+  snapshot: Snapshot;
+  preview: Preview;
+  types: NoteType[];
+};
+
+async function snapshotInputs(): Promise<SnapshotInputs> {
+  const state = await readSnapshotInputs();
+  if (!state.collection) throw new Error("No Anki collection is available");
+  if (state.version.dictionary) return state;
   const manifest = await api.manifest();
   await loadDictionary(manifest, () => undefined);
-  return manifest.datasetVersion;
+  return manifest.datasetVersion === "unavailable"
+    ? state
+    : readSnapshotInputs();
+}
+
+function requireCollection(state: SnapshotInputs): CollectionData {
+  if (!state.collection) throw new Error("No Anki collection is available");
+  return state.collection;
+}
+
+function buildFromInputs(
+  collection: CollectionData,
+  config: Config,
+  state: SnapshotInputs,
+) {
+  return buildSnapshot(
+    collection,
+    config,
+    state.corrections,
+    state.version.dictionary ?? "unavailable",
+    lookupDictionary,
+  );
+}
+
+function validFields(type: NoteType, mapping: Mapping) {
+  return (
+    type.fields.includes(mapping.spelling) &&
+    (!mapping.translation ||
+      (type.fields.includes(mapping.translation) &&
+        mapping.translation !== mapping.spelling)) &&
+    (!mapping.reading || type.fields.includes(mapping.reading))
+  );
+}
+
+function validateConfig(config: Config, types: NoteType[]) {
+  if (!types.length)
+    throw new Error("The selected deck contains no note types");
+  for (const type of types) {
+    const mapping = config.mappings[String(type.id)];
+    if (!mapping || mapping.status === "unconfigured")
+      throw new Error("Configure or skip every note type");
+    if (mapping.status === "configured" && !validFields(type, mapping))
+      throw new Error("Choose valid fields");
+  }
+  if (
+    !types.some(
+      (type) => config.mappings[String(type.id)].status === "configured",
+    )
+  ) {
+    throw new Error("Configure at least one note type");
+  }
 }
 
 export const api = {
-  async status(): Promise<Status> {
-    const state = await localState();
-    return {
-      hasCollection: Boolean(state.collection), hasAnkiSession: Boolean(state.auth),
-      ankiAccount: state.auth?.email || null, hasSnapshot: Boolean(state.snapshot), config: state.config,
-    };
-  },
-  async decks(): Promise<Deck[]> {
-    const { collection } = await localState();
+  async decks() {
+    const collection = await readCollection();
     if (!collection) throw new Error("No Anki collection is available");
     return collectionDecks(collection);
   },
-  async noteTypes(deckId: number, includeChildren: boolean): Promise<NoteType[]> {
-    const { collection } = await localState();
+  async noteTypes(deckId: number, includeChildren: boolean) {
+    const collection = await readCollection();
     if (!collection) throw new Error("No Anki collection is available");
     return collectionNoteTypes(collection, deckId, includeChildren);
   },
-  login: (email: string, password: string) => request<{ jobId: string }>("/anki/login", {
-    method: "POST", ...json({ email, password }),
-  }),
-  async sync(): Promise<{ jobId: string }> {
-    const { auth } = await localState();
+  login: (email: string, password: string) =>
+    request<{ jobId: string }>("/anki/login", {
+      method: "POST",
+      ...json({ email, password }),
+    }),
+  async sync(): Promise<{ jobId: string; source: SyncSource }> {
+    const { auth, version } = await readSyncSource();
     if (!auth) throw new Error("Sign in to AnkiWeb first");
-    return request<{ jobId: string }>("/anki/sync", { method: "POST", ...json(auth) });
+    const { jobId } = await request<{ jobId: string }>("/anki/sync", {
+      method: "POST",
+      ...json(auth),
+    });
+    return { jobId, source: version };
   },
-  job: (id: string) => request<{
-    status: "running" | "complete" | "error"; message?: string; result?: DownloadResult;
-  }>(`/jobs/${id}`),
-  async applyLogin(result: DownloadResult): Promise<void> {
-    await replaceCollection(result.collection, result.auth);
+  job: (id: string, signal?: AbortSignal) =>
+    request<{
+      status: "running" | "complete" | "error";
+      message?: string;
+      result?: DownloadResult;
+    }>(`/jobs/${id}`, { signal }),
+  async applySync(
+    result: DownloadResult,
+    source: SyncSource,
+  ): Promise<SyncResult | null> {
+    while (sameCollectionContent(await readSourceVersion(), source)) {
+      let state = await readSnapshotInputs();
+      if (!sameCollectionContent(state.version, source)) return null;
+      if (state.config && !state.version.dictionary) {
+        const refreshed = await snapshotInputs();
+        if (!sameCollectionContent(refreshed.version, source)) return null;
+        state = refreshed;
+      }
+      const snapshot = state.config
+        ? await buildFromInputs(result.collection, state.config, state)
+        : null;
+      const saved = await saveSyncedCollection(
+        result.collection,
+        result.auth,
+        snapshot,
+        state.version,
+      );
+      if (!saved) continue;
+      const previousIds = new Set(
+        saved.previousSnapshot?.unresolved?.map((word) => word.noteId),
+      );
+      const newUnresolved =
+        snapshot?.unresolved.filter((word) => !previousIds.has(word.noteId)) ??
+        [];
+      return {
+        snapshot,
+        newUnresolved,
+        newDuplicates: newDuplicateRecords(saved.previousSnapshot, snapshot),
+      };
+    }
+    return null;
   },
-  async applySync(result: DownloadResult): Promise<SyncResult> {
-    const state = await localState();
-    const snapshot = state.config
-      ? await buildSnapshot(result.collection, state.config, state.corrections, await dictionaryVersion())
-      : null;
-    const previousSnapshot = await saveSyncedCollection(result.collection, result.auth, snapshot);
-    const previousIds = new Set(previousSnapshot?.unresolved?.map((word) => word.noteId));
-    const newUnresolved = snapshot?.unresolved.filter((word) => !previousIds.has(word.noteId)) ?? [];
-    return { snapshot, newUnresolved, newDuplicates: newDuplicateRecords(previousSnapshot, snapshot) };
-  },
-  async importFile(file: File): Promise<void> {
+  async importFile(file: File): Promise<CollectionData> {
     const body = new FormData();
     body.append("file", file);
-    const result = await request<{ collection: DownloadResult["collection"] }>("/anki/import", {
-      method: "POST", body,
-    });
-    await replaceCollection(result.collection, null);
-  },
-  async saveConfig(config: Config): Promise<{ snapshotVersion: string; wordCount: number }> {
-    const state = await localState();
-    if (!state.collection) throw new Error("No Anki collection is available");
-    const types = collectionNoteTypes(state.collection, config.deckId, config.includeChildren);
-    if (!types.length) throw new Error("The selected deck contains no note types");
-    for (const type of types) {
-      const mapping = config.mappings[String(type.id)];
-      if (!mapping || !["configured", "skipped"].includes(mapping.status))
-        throw new Error("Configure or skip every note type");
-      if (mapping.status === "configured" && (
-        !type.fields.includes(mapping.spelling) ||
-        mapping.translation && !type.fields.includes(mapping.translation) ||
-        mapping.translation && mapping.spelling === mapping.translation ||
-        mapping.reading && !type.fields.includes(mapping.reading)
-      )) throw new Error("Choose valid fields");
-    }
-    if (!types.some((type) => config.mappings[String(type.id)].status === "configured"))
-      throw new Error("Configure at least one note type");
-    const snapshot = await buildSnapshot(state.collection, config, state.corrections, await dictionaryVersion());
-    await saveConfigAndSnapshot(config, snapshot);
-    return { snapshotVersion: snapshot.snapshotVersion, wordCount: snapshot.words.length };
+    const result = await request<{ collection: CollectionData }>(
+      "/anki/import",
+      { method: "POST", body },
+    );
+    return result.collection;
   },
   async snapshot(): Promise<Snapshot> {
-    const state = await localState();
-    if (!state.snapshot) throw new Error("No snapshot is available");
-    return state.snapshot;
+    const snapshot = await cachedSnapshot();
+    if (!snapshot) throw new Error("No snapshot is available");
+    return snapshot;
+  },
+  async prepareSetup(config: Config): Promise<PreparedSetup> {
+    const state = await snapshotInputs();
+    const collection = requireCollection(state);
+    const types = collectionNoteTypes(
+      collection,
+      config.deckId,
+      config.includeChildren,
+    );
+    const mappings: Record<string, Mapping> = Object.fromEntries(
+      Object.entries(config.mappings).map(([id, mapping]) => {
+        const type = types.find((item) => String(item.id) === id);
+        return [
+          id,
+          {
+            ...mapping,
+            status:
+              type && mapping.status !== "skipped" && validFields(type, mapping)
+                ? "configured"
+                : "skipped",
+          },
+        ];
+      }),
+    );
+    const prepared = await prepareSnapshot(
+      collection,
+      { ...config, mappings },
+      state.corrections,
+      state.version.dictionary ?? "unavailable",
+      lookupDictionary,
+    );
+    return { ...prepared, config, source: state.version, types };
   },
   async preview(config: Config): Promise<Preview> {
-    const state = await localState();
-    if (!state.collection) throw new Error("No Anki collection is available");
-    const types = collectionNoteTypes(state.collection, config.deckId, config.includeChildren);
-    const mappings: Record<string, Mapping> = Object.fromEntries(Object.entries(config.mappings).map(([id, mapping]) => {
-      const type = types.find((item) => String(item.id) === id);
-      const valid = type && type.fields.includes(mapping.spelling) &&
-        (!mapping.translation || type.fields.includes(mapping.translation) && mapping.translation !== mapping.spelling) &&
-        (!mapping.reading || type.fields.includes(mapping.reading));
-      return [id, { ...mapping, status: valid && mapping.status !== "skipped" ? "configured" as const : "skipped" as const }];
-    }));
-    return previewSnapshot(state.collection, { ...config, mappings }, state.corrections, await dictionaryVersion());
+    return (await api.prepareSetup(config)).preview;
   },
-  async saveCorrection(noteId: string, spelling: string, reading: string, ruby: string): Promise<void> {
-    const state = await localState();
-    if (!state.collection) throw new Error("No Anki collection is available");
-    if (!Object.values(state.collection.studiedNotes).some((notes) => notes.some((note) => note.id === noteId)))
-      throw new Error("Note not found");
+  async refreshSetup(prepared: PreparedSetup): Promise<PreparedSetup> {
+    const current = await readSourceVersion();
+    if (sameSnapshotInputs(current, prepared.source)) return prepared;
+    if (current.id !== prepared.source.id)
+      throw new Error("The collection changed. Reopen deck setup.");
+    const refreshed = await api.prepareSetup(prepared.config);
+    if (refreshed.source.id !== prepared.source.id)
+      throw new Error("The collection changed. Reopen deck setup.");
+    return refreshed;
+  },
+  async saveSetup(prepared: PreparedSetup): Promise<boolean> {
+    validateConfig(prepared.config, prepared.types);
+    return saveConfigAndSnapshot(
+      prepared.config,
+      prepared.snapshot,
+      prepared.source,
+    );
+  },
+  async saveCorrection(
+    noteId: string,
+    spelling: string,
+    reading: string,
+    ruby: string,
+  ): Promise<void> {
     const correction = validateCorrection(spelling, reading, ruby);
-    await storeCorrection(noteId, correction);
-    if (state.config) {
-      const snapshot = await buildSnapshot(state.collection, state.config,
-        { ...state.corrections, [noteId]: correction }, await dictionaryVersion());
-      await saveConfigAndSnapshot(state.config, snapshot);
+    const first = await readSnapshotInputs();
+    let state = first;
+    for (;;) {
+      if (state.version.id !== first.version.id)
+        throw new Error("The collection changed. Reopen word corrections.");
+      const collection = requireCollection(state);
+      if (
+        !Object.values(collection.studiedNotes).some((notes) =>
+          notes.some((note) => note.id === noteId),
+        )
+      ) {
+        throw new Error("Note not found");
+      }
+      if (await storeCorrection(noteId, correction, state.version)) break;
+      state = await readSnapshotInputs();
+    }
+    for (;;) {
+      state = await readSnapshotInputs();
+      if (state.version.id !== first.version.id || !state.config) return;
+      if (!state.version.dictionary) {
+        state = await snapshotInputs();
+        if (state.version.id !== first.version.id || !state.config) return;
+      }
+      const snapshot = await buildFromInputs(
+        requireCollection(state),
+        state.config,
+        state,
+      );
+      if (await publishCorrectedSnapshot(snapshot, state.version)) return;
     }
   },
   manifest: () => request<DictionaryManifest>("/dictionary/manifest"),
 };
 
-export async function waitForJob(id: string): Promise<DownloadResult> {
+function retryableJobError(error: unknown) {
+  if (error instanceof HttpError)
+    return [408, 429].includes(error.status) || error.status >= 500;
+  return error instanceof TypeError || error instanceof SyntaxError;
+}
+
+export async function waitForJob(
+  id: string,
+  signal?: AbortSignal,
+): Promise<DownloadResult> {
+  let failures = 0;
   for (;;) {
-    const result = await api.job(id);
-    if (result.status === "complete" && result.result) return result.result;
-    if (result.status === "error") throw new Error(result.message || "Operation failed");
-    await new Promise((resolve) => window.setTimeout(resolve, 1200));
+    signal?.throwIfAborted();
+    let result;
+    try {
+      result = await api.job(id, signal);
+      failures = 0;
+    } catch (error) {
+      if (!retryableJobError(error) || ++failures > 3) throw error;
+    }
+    if (result?.status === "complete") {
+      if (!result.result) throw new Error("The job returned no collection");
+      return result.result;
+    }
+    if (result?.status === "error")
+      throw new Error(result.message || "Operation failed");
+    await new Promise((resolve) =>
+      setTimeout(resolve, 1200 * Math.max(1, failures)),
+    );
   }
 }

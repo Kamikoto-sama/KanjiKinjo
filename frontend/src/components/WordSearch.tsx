@@ -1,5 +1,5 @@
 import { SearchIcon } from "lucide-react";
-import { useMemo, useRef, useState, type Ref } from "react";
+import { useMemo, useRef, useState, type Ref, type RefObject } from "react";
 import type { Word } from "../types";
 import { wordPath } from "../wordPath";
 import { RecordRow } from "./RecordRow";
@@ -9,17 +9,16 @@ import { ItemGroup } from "./ui/item";
 
 const pageSize = 50;
 
-export type WordSearchState = {
-  query: string;
-  onQueryChange: (query: string) => void;
-};
-
 export function WordSearch({
   words,
-  query,
-  onQueryChange,
+  savedQuery,
   inputRef,
-}: WordSearchState & { words: Word[]; inputRef: Ref<HTMLInputElement> }) {
+}: {
+  words: Word[];
+  inputRef: Ref<HTMLInputElement>;
+  savedQuery: RefObject<string>;
+}) {
+  const [query, setQuery] = useState(() => savedQuery.current);
   const [limit, setLimit] = useState(pageSize);
   const results = useRef<HTMLDivElement>(null);
   const spelling = query.trim().normalize("NFC");
@@ -56,7 +55,8 @@ export function WordSearch({
             type="search"
             value={query}
             onChange={(event) => {
-              onQueryChange(event.currentTarget.value);
+              savedQuery.current = event.currentTarget.value;
+              setQuery(event.currentTarget.value);
               setLimit(pageSize);
               results.current?.scrollTo({ top: 0 });
             }}

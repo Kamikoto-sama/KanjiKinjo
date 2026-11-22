@@ -1,5 +1,9 @@
-import { cache } from "./cache";
 import type { CollectionData, Config, Correction, DuplicateGroup, DuplicateRecord, NoteType, Preview, RubyPart, Snapshot, StudiedNote, UnresolvedWord, Word } from "./types";
+
+type DictionaryLookup = (
+  spelling: string,
+  datasetVersion: string,
+) => Promise<Pick<Word, "wordId" | "reading" | "ruby">[]>;
 
 const kanji = /[\u3400-\u9fff\uf900-\ufaff]/u;
 const kana = /^[ぁ-ゖー・]+$/u;
@@ -92,13 +96,19 @@ function studiedNotes(collection: CollectionData, config: Config): StudiedNote[]
   return [...notes.values()];
 }
 
-export async function buildSnapshot(collection: CollectionData, config: Config,
-  corrections: Record<string, Correction>, datasetVersion: string): Promise<Snapshot> {
+export async function buildSnapshot(
+  collection: CollectionData,
+  config: Config,
+  corrections: Record<string, Correction>,
+  datasetVersion: string,
+  lookup: DictionaryLookup,
+): Promise<Snapshot> {
   const deck = collection.decks.find((item) => item.id === config.deckId);
   if (!deck) throw new Error("Deck not found");
   const types = new Map(collectionNoteTypes(collection, config.deckId, config.includeChildren).map((item) => [item.id, item]));
   const recordsByWord = new Map<string, DuplicateRecord[]>();
   const unresolved: UnresolvedWord[] = [];
+  const dictionary = new Map<string, Awaited<ReturnType<DictionaryLookup>>>();
   for (const note of studiedNotes(collection, config)) {
     const type = types.get(note.modelId);
     const mapping = config.mappings[String(note.modelId)];
@@ -113,8 +123,14 @@ export async function buildSnapshot(collection: CollectionData, config: Config,
       Object.values(fields).map((value) => rubyFromAnnotation(value, spelling)).find(Boolean) || null;
     let reading = sourceReading.includes("[") && sourceRuby ? readingFromRuby(sourceRuby) || "" : normalizeReading(sourceReading);
     if (!reading && sourceRuby) reading = readingFromRuby(sourceRuby) || "";
-    const matches = (await cache.dictionaryWords.where("spelling").equals(spelling).toArray())
-      .filter((item) => item.datasetVersion === datasetVersion && (!reading || item.reading === reading));
+    let entries = dictionary.get(spelling);
+    if (!entries) {
+      entries = await lookup(spelling, datasetVersion);
+      dictionary.set(spelling, entries);
+    }
+    const matches = reading
+      ? entries.filter((item) => item.reading === reading)
+      : entries;
     if (!reading) {
       if (matches.length !== 1) {
         unresolved.push({ noteId: note.id, noteTypeId: note.modelId, spelling,
@@ -172,17 +188,44 @@ export function newDuplicateRecords(previous: Snapshot | null, next: Snapshot | 
   });
 }
 
-export async function previewSnapshot(collection: CollectionData, config: Config,
-  corrections: Record<string, Correction>, datasetVersion: string): Promise<Preview> {
-  const snapshot = await buildSnapshot(collection, config, corrections, datasetVersion);
-  const noteTypes = new Map(studiedNotes(collection, config).map((note) => [note.id, String(note.modelId)]));
-  const wordsByType: Record<string, Word[]> = Object.fromEntries(
-    collectionNoteTypes(collection, config.deckId, config.includeChildren).map((item) => [String(item.id), []]),
+export async function prepareSnapshot(
+  collection: CollectionData,
+  config: Config,
+  corrections: Record<string, Correction>,
+  datasetVersion: string,
+  lookup: DictionaryLookup,
+): Promise<{ snapshot: Snapshot; preview: Preview }> {
+  const snapshot = await buildSnapshot(
+    collection,
+    config,
+    corrections,
+    datasetVersion,
+    lookup,
   );
-  for (const word of snapshot.words) for (const typeId of new Set(word.noteIds.map((id) => noteTypes.get(id)))) {
-    if (typeId && wordsByType[typeId] && wordsByType[typeId].length < 30) wordsByType[typeId].push(word);
-  }
-  return { wordsByType, unresolved: snapshot.unresolved, duplicateGroups: snapshot.duplicateGroups ?? [] };
+  const noteTypes = new Map(
+    studiedNotes(collection, config).map((note) => [
+      note.id,
+      String(note.modelId),
+    ]),
+  );
+  const wordsByType: Record<string, Word[]> = Object.fromEntries(
+    collectionNoteTypes(collection, config.deckId, config.includeChildren).map(
+      (item) => [String(item.id), []],
+    ),
+  );
+  for (const word of snapshot.words)
+    for (const typeId of new Set(word.noteIds.map((id) => noteTypes.get(id)))) {
+      if (typeId && wordsByType[typeId] && wordsByType[typeId].length < 30)
+        wordsByType[typeId].push(word);
+    }
+  return {
+    snapshot,
+    preview: {
+      wordsByType,
+      unresolved: snapshot.unresolved,
+      duplicateGroups: snapshot.duplicateGroups ?? [],
+    },
+  };
 }
 
 export function validateCorrection(spellingInput: string, readingInput: string, rubyInput: string): Correction {

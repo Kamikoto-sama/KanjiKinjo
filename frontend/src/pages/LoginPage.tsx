@@ -15,9 +15,15 @@ import { FormError } from "../components/FormError";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { goBack } from "../navigation";
-import type { Status } from "../types";
+import type { CollectionData, AnkiAuth, Status } from "../types";
 
-export function LoginPage({ status }: { status: Status | null }) {
+export function LoginPage({
+  status,
+  onReplace,
+}: {
+  status: Status | null;
+  onReplace: (collection: CollectionData, auth: AnkiAuth) => Promise<void>;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -40,9 +46,8 @@ export function LoginPage({ status }: { status: Status | null }) {
     try {
       const { jobId } = await api.login(email, password);
       setPassword("");
-      await api.applyLogin(await waitForJob(jobId));
-      sessionStorage.removeItem("setupDraft");
-      window.location.assign("/setup");
+      const { collection, auth } = await waitForJob(jobId);
+      await onReplace(collection, auth);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Sign in failed");
     } finally {

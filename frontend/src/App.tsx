@@ -1,8 +1,6 @@
-import { ArrowLeftIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   BrowserRouter,
-  Link,
   Navigate,
   Route,
   Routes,
@@ -10,269 +8,158 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { api, waitForJob, type SyncResult } from "./api";
-import { cachedSimilar, cachedSnapshot, loadDictionary } from "./cache";
+import {
+  cache,
+  cachedSimilar,
+  loadDictionary,
+  readStartup,
+  replaceCollection,
+} from "./cache";
+import { LoadingScreen } from "./components/LoadingScreen";
 import { SyncResultsDialog } from "./components/SyncResultsDialog";
 import { Badge } from "./components/ui/badge";
-import { Card, CardContent, CardHeader } from "./components/ui/card";
 import { Empty, EmptyHeader, EmptyTitle } from "./components/ui/empty";
-import { Item, ItemContent, ItemGroup, ItemTitle } from "./components/ui/item";
 import { Spinner } from "./components/ui/spinner";
 import { Button } from "./components/ui/button";
 import { LoginPage } from "./pages/LoginPage";
 import { ImportPage } from "./pages/ImportPage";
-import { goBack } from "./navigation";
 import { CorrectionsPage } from "./pages/CorrectionsPage";
 import { DuplicatesPage } from "./pages/DuplicatesPage";
 import { SetupPage } from "./pages/SetupPage";
-import type { Snapshot, Status } from "./types";
-import { wordPath } from "./wordPath";
+import { WordRoute } from "./pages/WordRoute";
+import type { AnkiAuth, CollectionData, Snapshot, Status } from "./types";
 
-let automaticSyncStarted = false;
-const WordPage = lazy(() => import("./pages/WordPage"));
-
-function LoadingScreen() {
-  return (
-    <main className="screen active loading-screen">
-      <Empty role="status">
-        <EmptyHeader>
-          <Spinner aria-hidden="true" />
-          <EmptyTitle>Loading KanjiGraph…</EmptyTitle>
-        </EmptyHeader>
-      </Empty>
-    </main>
-  );
-}
-
-function WordRoute({
-  snapshot,
-  status,
-  similar,
-  onSync,
-}: {
-  snapshot: Snapshot | null;
-  status: Status | null;
-  similar: Record<string, string[]>;
-  onSync: (returnFocus?: HTMLElement) => Promise<SyncResult | null>;
-}) {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const params = new URLSearchParams(location.search);
-  const spelling = params.get("spelling");
-  const reading = params.get("reading");
-  const normalizedSpelling = spelling?.normalize("NFC") || "";
-  const normalizedReading =
-    reading
-      ?.normalize("NFC")
-      .replace(/[ァ-ヶ]/g, (char) =>
-        String.fromCharCode(char.charCodeAt(0) - 96),
-      ) || "";
-  const matches =
-    snapshot?.words.filter(
-      (word) =>
-        word.spelling === normalizedSpelling &&
-        (!normalizedReading || word.reading === normalizedReading),
-    ) ?? [];
-  const word = matches.length === 1 ? matches[0] : undefined;
-
-  useEffect(() => {
-    if (!normalizedSpelling) {
-      navigate("/search", { replace: true });
-      return;
-    }
-    const search = new URLSearchParams(location.search);
-    const legacyFilters = ["group", "kanji", "filterReading"];
-    const hasLegacyFilters = legacyFilters.some((key) => search.has(key));
-    for (const key of legacyFilters) search.delete(key);
-    if (!snapshot) {
-      const query = search.toString();
-      sessionStorage.setItem(
-        "pendingWord",
-        query ? `${location.pathname}?${query}` : location.pathname,
-      );
-      navigate("/setup", { replace: true });
-      return;
-    }
-    const replace = { replace: true, state: location.state };
-    if (
-      word &&
-      (hasLegacyFilters ||
-        spelling !== word.spelling ||
-        reading !== word.reading)
-    ) {
-      navigate(wordPath(word), replace);
-    } else if (hasLegacyFilters) {
-      navigate(
-        { pathname: location.pathname, search: search.toString() },
-        replace,
-      );
-    }
-  }, [
-    location,
-    navigate,
-    normalizedSpelling,
-    reading,
-    snapshot,
-    spelling,
-    word,
-  ]);
-
-  if (!normalizedSpelling) return null;
-  if (snapshot) {
-    if (matches.length <= 1)
-      return (
-        <Suspense fallback={<LoadingScreen />}>
-          <WordPage
-            key={location.key}
-            snapshot={snapshot}
-            word={word}
-            config={status?.config || null}
-            hasAnkiSession={Boolean(status?.hasAnkiSession)}
-            similar={similar}
-            onSync={onSync}
-          />
-        </Suspense>
-      );
-    return (
-      <main className="screen active">
-        <Card className="setup-window gap-0 py-0">
-          <CardHeader className="setup-header">
-            <Button
-              variant="ghost"
-              size="icon-lg"
-              type="button"
-              aria-label="Back"
-              onClick={() => goBack(navigate, "/search")}
-            >
-              <ArrowLeftIcon className="size-5" aria-hidden="true" />
-            </Button>
-            <h1>Choose a reading</h1>
-          </CardHeader>
-          <CardContent className="setup-content">
-            <ItemGroup
-              role="group"
-              aria-label="Available readings"
-              className="gap-2"
-            >
-              {matches.map((word) => (
-                <Item asChild key={word.wordId} variant="outline">
-                  <Link
-                    to={wordPath(word)}
-                    replace
-                    className="text-foreground no-underline"
-                  >
-                    <ItemContent>
-                      <ItemTitle>{word.spelling}</ItemTitle>
-                    </ItemContent>
-                    <Badge variant="secondary">{word.reading}</Badge>
-                  </Link>
-                </Item>
-              ))}
-            </ItemGroup>
-          </CardContent>
-        </Card>
-      </main>
-    );
-  }
-  return null;
-}
+const SearchPage = lazy(() => import("./pages/SearchPage"));
 
 function Application() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [collectionId, setCollectionId] = useState<string | null>(null);
   const [similar, setSimilar] = useState<Record<string, string[]>>({});
-  const [loading, setLoading] = useState(true);
+  const [startup, setStartup] = useState<"loading" | "error" | "ready">(
+    "loading",
+  );
+  const [startupAttempt, setStartupAttempt] = useState(0);
+  const startupRead = useRef<Promise<
+    Awaited<ReturnType<typeof readStartup>>
+  > | null>(null);
+  const savedSearch = useRef("");
+  const collectionEpoch = useRef(0);
+  const automaticSyncStarted = useRef(false);
   const [dictionaryProgress, setDictionaryProgress] = useState("");
   const [syncIssues, setSyncIssues] = useState<{
     unresolvedCount: number;
     duplicateCount: number;
     returnFocus?: HTMLElement;
   } | null>(null);
-  const pendingSync = useRef<Promise<SyncResult | null> | null>(null);
-  const syncReturnFocus = useRef<HTMLElement | undefined>(undefined);
+  const pendingSync = useRef<{
+    controller: AbortController;
+    promise: Promise<SyncResult | null>;
+    returnFocus?: HTMLElement;
+  } | null>(null);
 
-  function onSynced(
-    { snapshot: updated, newUnresolved, newDuplicates }: SyncResult,
-    returnFocus?: HTMLElement,
+  async function changeCollection(
+    collection: CollectionData,
+    auth: AnkiAuth | null,
   ) {
-    if (updated) setSnapshot(updated);
-    if (newUnresolved.length || newDuplicates.length) {
-      setSyncIssues({
-        unresolvedCount: newUnresolved.length,
-        duplicateCount: newDuplicates.length,
-        returnFocus,
-      });
-    }
+    const next = await replaceCollection(collection, auth);
+    collectionEpoch.current++;
+    pendingSync.current?.controller.abort();
+    pendingSync.current = null;
+    savedSearch.current = "";
+    sessionStorage.removeItem("setupDraft");
+    setCollectionId(next.collectionId);
+    setStatus(next.status);
+    setSnapshot(null);
+    setSyncIssues(null);
+    navigate("/setup");
   }
 
   function syncDeck(
-    shouldApply?: () => Promise<boolean>,
+    shouldApply?: () => boolean,
     returnFocus?: HTMLElement,
   ): Promise<SyncResult | null> {
-    if (returnFocus) syncReturnFocus.current = returnFocus;
-    if (!pendingSync.current) {
-      async function runSync() {
-        const { jobId } = await api.sync();
-        const downloaded = await waitForJob(jobId);
-        if (shouldApply && !(await shouldApply())) return null;
-        const result = await api.applySync(downloaded);
-        onSynced(result, syncReturnFocus.current);
-        return result;
-      }
-
-      pendingSync.current = runSync().finally(() => {
-        pendingSync.current = null;
-        syncReturnFocus.current = undefined;
-      });
+    if (pendingSync.current) {
+      if (returnFocus) pendingSync.current.returnFocus = returnFocus;
+      return pendingSync.current.promise;
     }
-    return pendingSync.current;
+    const controller = new AbortController();
+    const epoch = collectionEpoch.current;
+    const stillCurrent = () => collectionEpoch.current === epoch;
+    const promise = (async () => {
+      try {
+        const { jobId, source } = await api.sync();
+        const downloaded = await waitForJob(jobId, controller.signal);
+        if (!stillCurrent() || (shouldApply && !shouldApply())) return null;
+        const result = await api.applySync(downloaded, source);
+        if (!result || !stillCurrent()) return null;
+        if (result.snapshot) setSnapshot(result.snapshot);
+        if (result.newUnresolved.length || result.newDuplicates.length) {
+          setSyncIssues({
+            unresolvedCount: result.newUnresolved.length,
+            duplicateCount: result.newDuplicates.length,
+            returnFocus: pendingSync.current?.returnFocus,
+          });
+        }
+        return result;
+      } catch (error) {
+        if (!stillCurrent()) return null;
+        throw error;
+      }
+    })().finally(() => {
+      if (pendingSync.current?.controller === controller)
+        pendingSync.current = null;
+    });
+    pendingSync.current = { controller, promise, returnFocus };
+    return promise;
   }
 
   useEffect(() => {
     let active = true;
     async function initialize() {
-      const cached = await cachedSnapshot();
-      if (!active) return;
-      if (cached) setSnapshot(cached);
-      setSimilar(await cachedSimilar());
       try {
-        const current = await api.status();
+        startupRead.current ??= startupAttempt
+          ? cache.open().then(readStartup)
+          : readStartup();
+        const current = await startupRead.current;
         if (!active) return;
-        setStatus(current);
-        const fresh = current.hasSnapshot ? await api.snapshot() : null;
-        if (active) setSnapshot(fresh);
+        setStatus(current.status);
+        setSnapshot(current.snapshot);
+        setSimilar(current.similar);
+        setCollectionId(current.collectionId);
+        setStartup("ready");
         if (
-          current.hasAnkiSession &&
-          current.config &&
+          current.status.hasAnkiSession &&
+          current.status.config &&
           navigator.onLine &&
-          !automaticSyncStarted &&
-          (!fresh || Date.now() - Date.parse(fresh.syncedAt) > 15 * 60 * 1000)
+          !automaticSyncStarted.current &&
+          (!current.snapshot ||
+            Date.now() - Date.parse(current.snapshot.syncedAt) > 15 * 60 * 1000)
         ) {
-          automaticSyncStarted = true;
-          void syncDeck(async () => {
-            const latestStatus = await api.status();
-            return (
-              Boolean(latestStatus.config) &&
-              JSON.stringify(latestStatus.config) ===
-                JSON.stringify(current.config) &&
-              !["/import", "/login"].includes(window.location.pathname)
-            );
-          }).catch(() => {
-            automaticSyncStarted = false;
+          automaticSyncStarted.current = true;
+          void syncDeck(
+            () => !["/import", "/login"].includes(window.location.pathname),
+          ).catch(() => {
+            automaticSyncStarted.current = false;
           });
         }
         void api
           .manifest()
-          .then((manifest) =>
-            loadDictionary(manifest, (done, total) =>
-              setDictionaryProgress(`Loading dictionary ${done}/${total}`),
-            ),
-          )
-          .then(async () => {
+          .then(async (manifest) => {
+            if (
+              manifest.datasetVersion === current.dictionaryVersion ||
+              manifest.datasetVersion === "unavailable"
+            )
+              return;
+            await loadDictionary(manifest, (done, total) => {
+              if (active)
+                setDictionaryProgress(`Loading dictionary ${done}/${total}`);
+            });
+            const updated = await cachedSimilar();
             if (active) {
-              setSimilar(await cachedSimilar());
+              setSimilar(updated);
               setDictionaryProgress("");
             }
           })
@@ -281,24 +168,36 @@ function Application() {
               setDictionaryProgress("Dictionary download paused");
           });
       } catch {
-        if (active)
-          setStatus({
-            hasCollection: Boolean(cached),
-            hasAnkiSession: false,
-            hasSnapshot: Boolean(cached),
-            config: null,
-          });
-      } finally {
-        if (active) setLoading(false);
+        if (active) setStartup("error");
       }
     }
-    initialize();
+    void initialize();
     return () => {
       active = false;
     };
-  }, []);
+  }, [startupAttempt]);
 
-  if (loading) return <LoadingScreen />;
+  if (startup === "loading") return <LoadingScreen />;
+  if (startup === "error") {
+    return (
+      <main className="screen active loading-screen">
+        <Empty>
+          <EmptyHeader role="alert">
+            <EmptyTitle>Could not open local storage</EmptyTitle>
+          </EmptyHeader>
+          <Button
+            onClick={() => {
+              startupRead.current = null;
+              setStartup("loading");
+              setStartupAttempt((attempt) => attempt + 1);
+            }}
+          >
+            Retry
+          </Button>
+        </Empty>
+      </main>
+    );
+  }
 
   return (
     <>
@@ -309,12 +208,12 @@ function Application() {
           element={
             snapshot ? (
               <Suspense fallback={<LoadingScreen />}>
-                <WordPage
+                <SearchPage
+                  key={collectionId ?? "legacy"}
                   snapshot={snapshot}
-                  search={{ query: searchQuery, onQueryChange: setSearchQuery }}
+                  savedQuery={savedSearch}
                   config={status?.config || null}
                   hasAnkiSession={Boolean(status?.hasAnkiSession)}
-                  similar={similar}
                   onSync={(returnFocus) => syncDeck(undefined, returnFocus)}
                 />
               </Suspense>
@@ -332,28 +231,32 @@ function Application() {
             <ImportPage
               status={status}
               fallback={snapshot ? "/search" : "/login"}
+              onReplace={changeCollection}
             />
           }
         />
-        <Route path="/login" element={<LoginPage status={status} />} />
+        <Route
+          path="/login"
+          element={<LoginPage status={status} onReplace={changeCollection} />}
+        />
         <Route
           path="/setup"
           element={
             <SetupPage
+              key={collectionId ?? "legacy"}
               initialConfig={status?.config || null}
               snapshotVersion={snapshot?.snapshotVersion}
               onReady={(next, config) => {
                 setSnapshot(next);
-                setStatus({
-                  hasCollection: true,
-                  hasAnkiSession: status?.hasAnkiSession || false,
-                  hasSnapshot: true,
-                  config,
-                });
-                void api
-                  .status()
-                  .then(setStatus)
-                  .catch(() => undefined);
+                setStatus(
+                  (current) =>
+                    current && {
+                      ...current,
+                      hasCollection: true,
+                      hasSnapshot: true,
+                      config,
+                    },
+                );
               }}
             />
           }

@@ -1,9 +1,16 @@
 import Dexie, { type Table } from "dexie";
 import type { DictionaryManifest } from "./api";
-import type { AnkiAuth, CollectionData, Config, Correction, Snapshot } from "./types";
+import type {
+  AnkiAuth,
+  CollectionData,
+  Config,
+  Correction,
+  Snapshot,
+  Status,
+} from "./types";
 
 type StoredValue = { key: string; value: unknown };
-type DictionaryWord = {
+export type DictionaryWord = {
   datasetVersion: string;
   wordId: string;
   spelling: string;
@@ -26,55 +33,253 @@ class Cache extends Dexie {
 
 export const cache = new Cache();
 
-export async function cachedSnapshot(): Promise<Snapshot | null> {
-  return (
-    ((await cache.values.get("snapshot"))?.value as Snapshot | null) ?? null
-  );
+type CollectionVersion = {
+  id: string | null;
+  // Content changes on sync. Inputs also change when mappings or corrections are saved.
+  content: number;
+  inputs: number;
+};
+
+export type SourceVersion = CollectionVersion & { dictionary: string | null };
+
+const legacyVersion: CollectionVersion = { id: null, content: 0, inputs: 0 };
+
+function value<T>(row: StoredValue | undefined): T | null {
+  return (row?.value as T | undefined) ?? null;
 }
 
-export async function localState() {
-  const rows = await cache.values.bulkGet(["collection", "auth", "config", "snapshot", "corrections"]);
+function statusFor(
+  hasCollection: boolean,
+  auth: AnkiAuth | null,
+  config: Config | null,
+  snapshot: Snapshot | null,
+): Status {
   return {
-    collection: (rows[0]?.value as CollectionData | undefined) ?? null,
-    auth: (rows[1]?.value as AnkiAuth | undefined) ?? null,
-    config: (rows[2]?.value as Config | undefined) ?? null,
-    snapshot: (rows[3]?.value as Snapshot | undefined) ?? null,
-    corrections: (rows[4]?.value as Record<string, Correction> | undefined) ?? {},
+    hasCollection,
+    hasAnkiSession: Boolean(auth),
+    ankiAccount: auth?.email ?? null,
+    hasSnapshot: Boolean(snapshot),
+    config,
   };
 }
 
-export async function replaceCollection(collection: CollectionData, auth: AnkiAuth | null): Promise<void> {
-  await cache.transaction("rw", cache.values, async () => {
-    await cache.values.bulkDelete(["collection", "auth", "config", "snapshot", "corrections"]);
-    await cache.values.put({ key: "collection", value: collection });
-    if (auth) await cache.values.put({ key: "auth", value: auth });
+export function readStartup() {
+  return cache.transaction("r", cache.values, async () => {
+    const [rows, hasCollection] = await Promise.all([
+      cache.values.bulkGet([
+        "auth",
+        "config",
+        "snapshot",
+        "similar",
+        "collectionVersion",
+        "dictionaryVersion",
+      ]),
+      cache.values.where(":id").equals("collection").count(),
+    ]);
+    const [auth, config, storedSnapshot, similar, version, dictionary] = rows;
+    const snapshot = value<Snapshot>(storedSnapshot);
+    return {
+      status: statusFor(
+        Boolean(hasCollection),
+        value<AnkiAuth>(auth),
+        value<Config>(config),
+        snapshot,
+      ),
+      snapshot,
+      similar: value<Record<string, string[]>>(similar) ?? {},
+      collectionId: (value<CollectionVersion>(version) ?? legacyVersion).id,
+      dictionaryVersion: value<string>(dictionary),
+    };
   });
 }
 
-export async function saveSyncedCollection(collection: CollectionData, auth: AnkiAuth, snapshot: Snapshot | null): Promise<Snapshot | null> {
+export async function cachedSnapshot(): Promise<Snapshot | null> {
+  return value<Snapshot>(await cache.values.get("snapshot"));
+}
+
+export async function readCollection() {
+  return value<CollectionData>(await cache.values.get("collection"));
+}
+
+export async function readSyncSource() {
+  const [auth, version] = await cache.values.bulkGet([
+    "auth",
+    "collectionVersion",
+  ]);
+  return {
+    auth: value<AnkiAuth>(auth),
+    version: value<CollectionVersion>(version) ?? legacyVersion,
+  };
+}
+
+export async function readSnapshotInputs() {
+  const [collection, config, corrections, version, dictionary] =
+    await cache.values.bulkGet([
+      "collection",
+      "config",
+      "corrections",
+      "collectionVersion",
+      "dictionaryVersion",
+    ]);
+  return {
+    collection: value<CollectionData>(collection),
+    config: value<Config>(config),
+    corrections: value<Record<string, Correction>>(corrections) ?? {},
+    version: {
+      ...(value<CollectionVersion>(version) ?? legacyVersion),
+      dictionary: value<string>(dictionary),
+    },
+  };
+}
+
+export async function readSourceVersion(): Promise<SourceVersion> {
+  const [version, dictionary] = await cache.values.bulkGet([
+    "collectionVersion",
+    "dictionaryVersion",
+  ]);
+  return {
+    ...(value<CollectionVersion>(version) ?? legacyVersion),
+    dictionary: value<string>(dictionary),
+  };
+}
+
+export function sameCollectionContent(
+  a: CollectionVersion,
+  b: CollectionVersion,
+) {
+  return a.id === b.id && a.content === b.content;
+}
+
+export function sameSnapshotInputs(a: SourceVersion, b: SourceVersion) {
+  return (
+    sameCollectionContent(a, b) &&
+    a.inputs === b.inputs &&
+    a.dictionary === b.dictionary
+  );
+}
+
+export async function lookupDictionary(
+  spelling: string,
+  dictionary: string,
+): Promise<DictionaryWord[]> {
+  const entries = await cache.dictionaryWords
+    .where("spelling")
+    .equals(spelling)
+    .toArray();
+  return entries.filter((word) => word.datasetVersion === dictionary);
+}
+
+export async function replaceCollection(
+  collection: CollectionData,
+  auth: AnkiAuth | null,
+) {
+  const version: CollectionVersion = {
+    id: crypto.randomUUID(),
+    content: 0,
+    inputs: 0,
+  };
+  await cache.transaction("rw", cache.values, async () => {
+    await cache.values.bulkDelete([
+      "auth",
+      "config",
+      "snapshot",
+      "corrections",
+    ]);
+    await cache.values.bulkPut([
+      { key: "collection", value: collection },
+      { key: "collectionVersion", value: version },
+      ...(auth ? [{ key: "auth", value: auth }] : []),
+    ]);
+  });
+  return {
+    status: statusFor(true, auth, null, null),
+    collectionId: version.id,
+  };
+}
+
+export function saveSyncedCollection(
+  collection: CollectionData,
+  auth: AnkiAuth,
+  snapshot: Snapshot | null,
+  source: SourceVersion,
+): Promise<{ previousSnapshot: Snapshot | null } | null> {
   return cache.transaction("rw", cache.values, async () => {
+    if (!sameSnapshotInputs(await readSourceVersion(), source)) return null;
     const previousSnapshot = await cachedSnapshot();
+    const version: CollectionVersion = {
+      id: source.id,
+      content: source.content + 1,
+      inputs: source.inputs + 1,
+    };
     await cache.values.bulkPut([
       { key: "collection", value: collection },
       { key: "auth", value: auth },
+      { key: "collectionVersion", value: version },
       ...(snapshot ? [{ key: "snapshot", value: snapshot }] : []),
     ]);
-    return previousSnapshot;
+    return { previousSnapshot };
   });
 }
 
-export async function saveConfigAndSnapshot(config: Config, snapshot: Snapshot): Promise<void> {
-  await cache.transaction("rw", cache.values, async () => {
+export function saveConfigAndSnapshot(
+  config: Config,
+  snapshot: Snapshot,
+  source: SourceVersion,
+) {
+  return cache.transaction("rw", cache.values, async () => {
+    if (!sameSnapshotInputs(await readSourceVersion(), source)) return false;
+    const version: CollectionVersion = {
+      id: source.id,
+      content: source.content,
+      inputs: source.inputs + 1,
+    };
     await cache.values.bulkPut([
       { key: "config", value: config },
       { key: "snapshot", value: snapshot },
+      { key: "collectionVersion", value: version },
     ]);
+    return true;
   });
 }
 
-export async function saveCorrection(noteId: string, correction: Correction): Promise<void> {
-  const current = (await cache.values.get("corrections"))?.value as Record<string, Correction> | undefined;
-  await cache.values.put({ key: "corrections", value: { ...current, [noteId]: correction } });
+export function saveCorrection(
+  noteId: string,
+  correction: Correction,
+  source: SourceVersion,
+) {
+  return cache.transaction("rw", cache.values, async () => {
+    const [version, corrections] = await cache.values.bulkGet([
+      "collectionVersion",
+      "corrections",
+    ]);
+    const current = value<CollectionVersion>(version) ?? legacyVersion;
+    if (!sameCollectionContent(current, source)) return false;
+    await cache.values.bulkPut([
+      {
+        key: "corrections",
+        value: {
+          ...value<Record<string, Correction>>(corrections),
+          [noteId]: correction,
+        },
+      },
+      {
+        key: "collectionVersion",
+        value: { ...current, inputs: current.inputs + 1 },
+      },
+    ]);
+    return true;
+  });
+}
+
+export function publishCorrectedSnapshot(
+  snapshot: Snapshot,
+  source: SourceVersion,
+) {
+  return cache.transaction("rw", cache.values, async () => {
+    if (!sameSnapshotInputs(await readSourceVersion(), source)) return false;
+    await cache.values.put({ key: "snapshot", value: snapshot });
+    return true;
+  });
 }
 
 let dictionaryLoad: Promise<void> | null = null;
