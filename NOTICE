@@ -1,0 +1,29 @@
+KanjiGraph
+
+Required Notice: Copyright (c) 2026 @Kamikoto-sama (https://github.com/Kamikoto-sama)
+
+The PolyForm Noncommercial License 1.0.0 in LICENSE covers the original
+KanjiGraph software. Third-party dependencies and dictionary data are available
+under their respective licenses.
+
+Dictionary data
+
+The generated dictionary in data/dictionary uses the following sources under
+Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0).
+https://creativecommons.org/licenses/by-sa/4.0/
+
+- JMdict, by James William Breen and the Electronic Dictionary Research and
+  Development Group (EDRDG). KanjiGraph extracts and normalizes spellings
+  and readings from JMdict.
+  https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project
+  https://www.edrdg.org/edrdg/licence.html
+- JmdictFurigana data, by Doublevil, derived from JMdict. KanjiGraph uses
+  the reading annotations to add furigana to dictionary entries.
+  https://github.com/Doublevil/JmdictFurigana#licence
+- similar-kanji.tsv, by Kanji Database (kanji-db.com). KanjiGraph converts
+  the pairs into a lookup of visually similar kanji. See the upstream
+  attribution for source data, including Yi Bai's IDS component data.
+  https://kanji-db.com/en/data
+  https://github.com/uball/kanji-db-data/blob/main/ATTRIBUTION.md
+
+The resulting dictionary data are distributed under CC BY-SA 4.0.
