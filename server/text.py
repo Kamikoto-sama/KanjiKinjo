@@ -44,7 +44,6 @@ def normalize_reading(value: str) -> str:
 
 def normalize_spelling(value: str) -> str:
     text = plain_text(value)
-    # Remove nested parenthetical hints as well as simple ones.
     while PARENTHETICAL.search(text):
         text = PARENTHETICAL.sub("", text)
     return unicodedata.normalize("NFC", re.sub(r"\s+", " ", text).strip())

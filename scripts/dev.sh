@@ -8,7 +8,6 @@ if [[ ! -x server/.venv/bin/uvicorn ]] || ! command -v npm >/dev/null; then
     exit 1
 fi
 
-# Give each server and its workers a separate process group.
 set -m
 api_pid=
 frontend_pid=
@@ -30,7 +29,6 @@ api_pid=$!
 KANJIGRAPH_API_TARGET=http://127.0.0.1:8001 npm --prefix frontend run dev -- --port 5173 --strictPort </dev/null &
 frontend_pid=$!
 
-# Bash 3.2 on macOS has no wait -n.
 while kill -0 "$api_pid" 2>/dev/null && kill -0 "$frontend_pid" 2>/dev/null; do
     sleep 1
 done

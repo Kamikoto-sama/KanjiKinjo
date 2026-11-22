@@ -1,18 +1,25 @@
 import sqlite3
+import stat
 import tempfile
 import zipfile
+from collections import deque
+from math import ceil
 from pathlib import Path
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Lock
+from time import monotonic
 from typing import Annotated
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import get_route_path
 from zstandard import ZstdError
 
-from .anki_sync import login, sync
+from .anki_sync import login, normalize_endpoint, sync
 from .dictionary import DICTIONARY, manifest
 from .importer import CollectionTooLarge, import_package
 from .jobs import RETRY_AFTER, JobCapacityError, get_job, start_job
@@ -20,6 +27,11 @@ from .jobs import RETRY_AFTER, JobCapacityError, get_job, start_job
 MAX_PACKAGE_BYTES = 256 * 1024 * 1024
 MAX_MULTIPART_BYTES = MAX_PACKAGE_BYTES + 1024 * 1024
 IMPORT_SLOTS = BoundedSemaphore(2)
+LOGIN_WINDOW_SECONDS = 60
+LOGIN_LIMIT_PER_CLIENT = 5
+LOGIN_LIMIT_TOTAL = 60
+login_attempts: deque[tuple[float, str]] = deque()
+login_lock = Lock()
 
 
 class LoginInput(BaseModel):
@@ -70,7 +82,25 @@ async def same_origin(request: Request, call_next):
 
 
 @app.post("/api/anki/login")
-def anki_login(payload: LoginInput):
+def anki_login(payload: LoginInput, request: Request):
+    client = request.client.host if request.client else ""
+    with login_lock:
+        now = monotonic()
+        while login_attempts and login_attempts[0][0] <= now - LOGIN_WINDOW_SECONDS:
+            login_attempts.popleft()
+        recent = [attempt for attempt, host in login_attempts if host == client]
+        if len(recent) >= LOGIN_LIMIT_PER_CLIENT:
+            retry_at = recent[0] + LOGIN_WINDOW_SECONDS
+        elif len(login_attempts) >= LOGIN_LIMIT_TOTAL:
+            retry_at = login_attempts[0][0] + LOGIN_WINDOW_SECONDS
+        else:
+            retry_at = now
+            login_attempts.append((now, client))
+        if retry_at > now:
+            raise HTTPException(
+                429, "Too many AnkiWeb sign-in attempts; try again shortly",
+                headers={"Retry-After": str(ceil(retry_at - now))},
+            )
     return enqueue_job(login, payload.email, payload.password)
 
 
@@ -78,7 +108,11 @@ def anki_login(payload: LoginInput):
 def anki_sync(payload: SyncInput):
     if not payload.hkey:
         raise HTTPException(400, "Sign in to AnkiWeb first")
-    return enqueue_job(sync, payload.hkey, payload.endpoint, payload.email)
+    try:
+        endpoint = normalize_endpoint(payload.endpoint)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    return enqueue_job(sync, payload.hkey, endpoint, payload.email)
 
 
 def enqueue_job(action, *args):
@@ -134,11 +168,38 @@ def dictionary_file(name: str):
     return FileResponse(DICTIONARY / name, media_type="application/gzip")
 
 
-DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-if DIST.exists():
-    app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
+class FrontendFiles(StaticFiles):
+    def __init__(self, directory: Path):
+        self.root = directory.resolve()
+        super().__init__(directory=self.root, check_dir=False)
 
-    @app.get("/{path:path}")
-    def frontend(path: str):
-        target = DIST / path
-        return FileResponse(target if target.is_file() else DIST / "index.html")
+    def lookup_path(self, path: str):
+        candidates = (path,) if path.partition("/")[0] == "assets" else (path, "index.html")
+        for candidate in candidates:
+            try:
+                target = (self.root / candidate).resolve()
+            except (OSError, RuntimeError, ValueError):
+                break
+            if not target.is_relative_to(self.root):
+                break
+            try:
+                info = target.stat()
+            except (FileNotFoundError, NotADirectoryError):
+                continue
+            if stat.S_ISREG(info.st_mode):
+                return str(target), info
+        return "", None
+
+
+frontend_files = FrontendFiles(Path(__file__).resolve().parent.parent / "frontend" / "dist")
+
+
+@app.exception_handler(404)
+async def frontend(request: Request, error: StarletteHTTPException):
+    path = get_route_path(request.scope).removeprefix("/")
+    if request.method in {"GET", "HEAD"} and path.partition("/")[0] != "api":
+        try:
+            return await frontend_files.get_response(path, request.scope)
+        except StarletteHTTPException as static_error:
+            return await http_exception_handler(request, static_error)
+    return await http_exception_handler(request, error)
