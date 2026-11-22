@@ -10,7 +10,6 @@ import {
 import {
   Fragment,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -106,7 +105,6 @@ export default function WordPage({
   const navigate = useNavigate();
   const location = useLocation();
   const [params] = useSearchParams();
-  const deckIconMaskId = useId();
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
   const [noteTypes, setNoteTypes] = useState<NoteType[]>([]);

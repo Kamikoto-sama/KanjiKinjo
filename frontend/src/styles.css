@@ -40,7 +40,7 @@
   --input: #73757b;
   --foreground: #f4efec;
   --muted-foreground: #bab5b2;
-  --primary: #db7c24;
+  --primary: #cb6d15;
   --primary-foreground: #191510;
   --accent: color-mix(in srgb, var(--primary) 12%, var(--card));
   --warning: #f4cf73;
@@ -71,7 +71,7 @@ body {
   min-width: 0;
 }
 @layer base {
-  :where(p[data-slot]) {
+  :where([data-slot]) {
     margin: 0;
   }
   :where([data-slot]) {

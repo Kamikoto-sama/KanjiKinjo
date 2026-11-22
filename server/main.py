@@ -124,7 +124,7 @@ def dictionary_file(name: str):
     return FileResponse(DICTIONARY / name, media_type="application/gzip")
 
 
-DIST = Path(__file__).resolve().parent.parent / "dist"
+DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if DIST.exists():
     app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
 
