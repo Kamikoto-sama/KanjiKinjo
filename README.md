@@ -1,6 +1,6 @@
 # KanjiKinjo
 
-Primarily a pet-project for myself, to help me study Japanese and find connections between words I’d already reviewed in Anki, that helps memorizations. When a kanji or reading feels familiar, I can look up where else I’ve seen it in my own deck.
+A web app that helps you remember Japanese vocabulary by finding connections between words you’ve already reviewed in Anki. When a kanji or reading looks familiar, you can see which other words in your deck use it.
 
 - Automatically sync from AnkiWeb or import an Anki export manually.
 - Search reviewed words by their Japanese spelling and see their readings with furigana.
