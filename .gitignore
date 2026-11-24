@@ -11,3 +11,4 @@ data/sources/
 data/dictionary/
 tsconfig.tsbuildinfo
 *.log
+/.idea/

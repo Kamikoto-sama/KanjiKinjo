@@ -12,9 +12,17 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { ReplaceDeckDialog } from "../components/ReplaceDeckDialog";
-import { FormError } from "../components/FormError";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { useDialogFocus } from "../components/useDialogFocus";
 import { goBack } from "../navigation";
 import type { CollectionData, Status } from "../types";
 
@@ -27,8 +35,10 @@ type Props = {
 export function ImportPage({ status, fallback, onReplace }: Props) {
   const navigate = useNavigate();
   const upload = useRef<HTMLInputElement>(null);
+  const chooseFile = useRef<HTMLButtonElement>(null);
+  const errorDialogFocus = useDialogFocus(chooseFile);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [pendingImport, setPendingImport] = useState<{
     kind: "account" | "file";
     trigger: HTMLButtonElement;
@@ -60,7 +70,7 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
   async function importFile(file?: File) {
     if (!file) return;
     setBusy(true);
-    setError("");
+    setError(null);
     try {
       await onReplace(await api.importFile(file), null);
     } catch (reason) {
@@ -158,6 +168,7 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
               </CardHeader>
               <CardFooter className="justify-center">
                 <Button
+                  ref={chooseFile}
                   size="lg"
                   variant="outline"
                   type="button"
@@ -183,7 +194,6 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
                 />
               </CardFooter>
             </Card>
-            {error && <FormError message={error} />}
           </div>
         </CardContent>
       </Card>
@@ -193,6 +203,22 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
           onCancel={cancelReplacement}
           onConfirm={confirmReplacement}
         />
+      )}
+      {error !== null && (
+        <AlertDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setError(null);
+          }}
+        >
+          <AlertDialogContent {...errorDialogFocus}>
+            <AlertDialogTitle>Import failed</AlertDialogTitle>
+            <AlertDialogDescription>{error}</AlertDialogDescription>
+            <AlertDialogFooter>
+              <AlertDialogCancel>OK</AlertDialogCancel>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
     </main>
   );

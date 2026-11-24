@@ -1,6 +1,5 @@
 import {
   cachedSnapshot,
-  loadDictionary,
   lookupDictionary,
   publishCorrectedSnapshot,
   readCollection,
@@ -91,20 +90,14 @@ export type PreparedSetup = {
   types: NoteType[];
 };
 
-async function snapshotInputs(): Promise<SnapshotInputs> {
-  const state = await readSnapshotInputs();
-  if (!state.collection) throw new Error("No Anki collection is available");
-  if (state.version.dictionary) return state;
-  const manifest = await api.manifest();
-  await loadDictionary(manifest, () => undefined);
-  return manifest.datasetVersion === "unavailable"
-    ? state
-    : readSnapshotInputs();
-}
-
 function requireCollection(state: SnapshotInputs): CollectionData {
   if (!state.collection) throw new Error("No Anki collection is available");
   return state.collection;
+}
+
+function requireDictionary(state: SnapshotInputs): string {
+  if (!state.version.dictionary) throw new Error("Dictionaries are not loaded");
+  return state.version.dictionary;
 }
 
 function buildFromInputs(
@@ -116,7 +109,7 @@ function buildFromInputs(
     collection,
     config,
     state.corrections,
-    state.version.dictionary ?? "unavailable",
+    requireDictionary(state),
     lookupDictionary,
   );
 }
@@ -186,13 +179,8 @@ export const api = {
     source: SyncSource,
   ): Promise<SyncResult | null> {
     while (sameCollectionContent(await readSourceVersion(), source)) {
-      let state = await readSnapshotInputs();
+      const state = await readSnapshotInputs();
       if (!sameCollectionContent(state.version, source)) return null;
-      if (state.config && !state.version.dictionary) {
-        const refreshed = await snapshotInputs();
-        if (!sameCollectionContent(refreshed.version, source)) return null;
-        state = refreshed;
-      }
       const snapshot = state.config
         ? await buildFromInputs(result.collection, state.config, state)
         : null;
@@ -232,7 +220,7 @@ export const api = {
     return snapshot;
   },
   async prepareSetup(config: Config): Promise<PreparedSetup> {
-    const state = await snapshotInputs();
+    const state = await readSnapshotInputs();
     const collection = requireCollection(state);
     const types = collectionNoteTypes(
       collection,
@@ -258,7 +246,7 @@ export const api = {
       collection,
       { ...config, mappings },
       state.corrections,
-      state.version.dictionary ?? "unavailable",
+      requireDictionary(state),
       lookupDictionary,
     );
     return { ...prepared, config, source: state.version, types };
@@ -310,10 +298,6 @@ export const api = {
     for (;;) {
       state = await readSnapshotInputs();
       if (state.version.id !== first.version.id || !state.config) return;
-      if (!state.version.dictionary) {
-        state = await snapshotInputs();
-        if (state.version.id !== first.version.id || !state.config) return;
-      }
       const snapshot = await buildFromInputs(
         requireCollection(state),
         state.config,
@@ -322,7 +306,8 @@ export const api = {
       if (await publishCorrectedSnapshot(snapshot, state.version)) return;
     }
   },
-  manifest: () => request<DictionaryManifest>("/dictionary/manifest"),
+  manifest: (signal?: AbortSignal) =>
+    request<DictionaryManifest>("/dictionary/manifest", { signal }),
 };
 
 function retryableJobError(error: unknown) {

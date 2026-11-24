@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { expect, test, type Page } from "@playwright/test";
 import type {
   CollectionData,
@@ -160,7 +162,7 @@ test("startup reports denied IndexedDB access and retries in the same document",
 test("login retries a lost result response and opens the new setup without reloading", async ({
   page,
 }) => {
-  await seed(page);
+  await mockManifest(page);
   let posts = 0;
   let reads = 0;
   await page.route("**/api/anki/login", async (route) => {
@@ -191,6 +193,9 @@ test("login retries a lost result response and opens the new setup without reloa
   await page.getByLabel("Email").fill(auth.email);
   await page.getByLabel("Password").fill("fixture password");
   await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/dictionaries$/);
+  await page.getByRole("button", { name: "Download", exact: true }).click();
+  await page.getByRole("button", { name: "Continue to deck setup" }).click();
   await expect(page).toHaveURL(/\/setup$/);
   await expect(
     page.getByRole("option", { name: "Signed-in deck" }),
@@ -200,6 +205,163 @@ test("login retries a lost result response and opens the new setup without reloa
     "yes",
   );
   expect({ posts, reads }).toEqual({ posts: 1, reads: 3 });
+});
+
+test("file import errors open a modal and return focus to Choose file", async ({
+  page,
+}) => {
+  const message =
+    "This package has no recorded answers; studied words cannot be determined";
+  await page.route("**/api/anki/import", (route) =>
+    route.fulfill({ status: 400, json: { detail: message } }),
+  );
+  await page.goto("/import");
+
+  const chooseFile = page.getByRole("button", {
+    name: "Choose file",
+    exact: true,
+  });
+  const chooser = page.waitForEvent("filechooser");
+  await chooseFile.click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "unstudied.apkg",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("fixture"),
+  });
+
+  const dialog = page.getByRole("alertdialog", { name: "Import failed" });
+  await expect(dialog).toHaveAccessibleDescription(message);
+  const close = dialog.getByRole("button", { name: "OK" });
+  await expect(close).toBeFocused();
+  await close.click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(message, { exact: true })).toHaveCount(0);
+  await expect(chooseFile).toBeFocused();
+});
+
+test("dictionary download starts on demand, cancels on Back, and waits for Continue", async ({
+  page,
+}) => {
+  const files = [
+    { path: "words.json.gz", kind: "words", body: gzipSync("[]") },
+    {
+      path: "similar.json.gz",
+      kind: "similar",
+      body: gzipSync('{"転":["伝"]}'),
+    },
+  ];
+  let manifestRequests = 0;
+  await page.route("**/api/dictionary/manifest", (route) => {
+    manifestRequests++;
+    return route.fulfill({
+      json: {
+        datasetVersion: "fixture",
+        files: files.map(({ path, kind, body }) => ({
+          path,
+          kind,
+          bytes: body.length,
+          sha256: createHash("sha256").update(body).digest("hex"),
+        })),
+      },
+    });
+  });
+  const firstDownload = Promise.withResolvers<void>();
+  const secondDownload = Promise.withResolvers<void>();
+  let similarDownloads = 0;
+  for (const { path, body } of files) {
+    await page.route(`**/api/dictionary/${path}`, async (route) => {
+      if (path === "similar.json.gz") {
+        similarDownloads++;
+        if (similarDownloads === 1) await firstDownload.promise;
+        if (similarDownloads === 2) {
+          await secondDownload.promise;
+          return route.fulfill({ status: 503 });
+        }
+      }
+      return route.fulfill({ body, contentType: "application/gzip" });
+    });
+  }
+  await page.route("**/api/anki/import", (route) =>
+    route.fulfill({ json: { collection: collection("Imported deck") } }),
+  );
+
+  await page.goto("/import");
+  const chooseFile = page.getByRole("button", {
+    name: "Choose file",
+    exact: true,
+  });
+  await expect(chooseFile).toBeVisible();
+  expect(manifestRequests).toBe(0);
+  const chooser = page.waitForEvent("filechooser");
+  await chooseFile.click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "fixture.apkg",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("fixture"),
+  });
+
+  await expect(page).toHaveURL(/\/dictionaries$/);
+  await expect(
+    page.getByRole("heading", { name: "Dictionaries", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("About 1 KB")).toBeVisible();
+  expect(similarDownloads).toBe(0);
+
+  const download = page.getByRole("button", { name: "Download", exact: true });
+  const canceled = page.waitForEvent("requestfailed", (request) =>
+    request.url().endsWith("/api/dictionary/similar.json.gz"),
+  );
+  await download.click();
+  await expect(page.getByRole("status")).toContainText(
+    "1 of 2 files downloaded",
+  );
+  await expect(page.getByLabel("Deck", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page).toHaveURL(/\/import$/);
+  await canceled;
+  firstDownload.resolve();
+  expect(
+    (await stored<CollectionData>(page, "collection"))?.decks[0].name,
+  ).toBe("Imported deck");
+  expect(await stored(page, "dictionaryVersion")).toBeUndefined();
+
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page).toHaveURL(/\/dictionaries$/);
+  await expect(download).toBeEnabled();
+  expect(similarDownloads).toBe(1);
+  await download.click();
+  await expect(page.getByRole("status")).toContainText(
+    "1 of 2 files downloaded",
+  );
+  secondDownload.resolve();
+  await expect(page.getByRole("alert")).toContainText(
+    "Could not load dictionaries",
+  );
+  await page.getByRole("button", { name: "Retry download" }).click();
+  const continueSetup = page.getByRole("button", {
+    name: "Continue to deck setup",
+  });
+  await expect(continueSetup).toBeVisible();
+  await expect(page).toHaveURL(/\/dictionaries$/);
+  expect(await stored(page, "dictionaryVersion")).toBe("fixture");
+  expect(await stored(page, "similar")).toEqual({ 転: ["伝"] });
+  await continueSetup.click();
+  await expect(page).toHaveURL(/\/setup$/);
+  await expect(
+    page.getByRole("option", { name: "Imported deck" }),
+  ).toBeAttached();
+  expect(similarDownloads).toBe(3);
+
+  await page.route("**/api/dictionary/manifest", (route) => route.abort());
+  await page.reload();
+  await expect(
+    page.getByRole("option", { name: "Imported deck" }),
+  ).toBeAttached();
+  expect(similarDownloads).toBe(3);
 });
 
 test("an older snapshot triggers automatic AnkiWeb sync on startup", async ({
@@ -306,6 +468,10 @@ test("import in one tab invalidates a sync started in another tab", async ({
     mimeType: "application/octet-stream",
     buffer: Buffer.from("fixture"),
   });
+  await expect(importing).toHaveURL(/\/dictionaries$/);
+  await importing
+    .getByRole("button", { name: "Continue to deck setup" })
+    .click();
   await expect(importing).toHaveURL(/\/setup$/);
   await expect(
     importing.getByRole("option", { name: "Imported deck" }),

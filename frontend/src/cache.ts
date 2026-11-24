@@ -65,18 +65,12 @@ function statusFor(
 
 export function readStartup() {
   return cache.transaction("r", cache.values, async () => {
-    const [rows, hasCollection] = await Promise.all([
-      cache.values.bulkGet([
-        "auth",
-        "config",
-        "snapshot",
-        "similar",
-        "collectionVersion",
-        "dictionaryVersion",
-      ]),
+    const [rows, hasCollection, dictionary] = await Promise.all([
+      cache.values.bulkGet(["auth", "config", "snapshot", "collectionVersion"]),
       cache.values.where(":id").equals("collection").count(),
+      readDictionary(),
     ]);
-    const [auth, config, storedSnapshot, similar, version, dictionary] = rows;
+    const [auth, config, storedSnapshot, version] = rows;
     const snapshot = value<Snapshot>(storedSnapshot);
     return {
       status: statusFor(
@@ -86,9 +80,8 @@ export function readStartup() {
         snapshot,
       ),
       snapshot,
-      similar: value<Record<string, string[]>>(similar) ?? {},
       collectionId: (value<CollectionVersion>(version) ?? legacyVersion).id,
-      dictionaryVersion: value<string>(dictionary),
+      dictionary,
     };
   });
 }
@@ -282,68 +275,111 @@ export function publishCorrectedSnapshot(
   });
 }
 
-let dictionaryLoad: Promise<void> | null = null;
+const dictionaryDownloadConcurrency = 4;
 
-async function unpack(path: string, expectedHash: string): Promise<unknown> {
-  const response = await fetch(`/api/dictionary/${path}`);
+async function unpack(
+  path: string,
+  expectedHash: string,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const response = await fetch(`/api/dictionary/${path}`, { signal });
   if (!response.ok) throw new Error(`Dictionary download failed: ${path}`);
   const data = await response.arrayBuffer();
   const digest = await crypto.subtle.digest("SHA-256", data);
+  signal.throwIfAborted();
   const hash = [...new Uint8Array(digest)]
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
   if (hash !== expectedHash)
     throw new Error(`Dictionary checksum mismatch: ${path}`);
   const decompressed = new Response(
-    new Blob([data]).stream().pipeThrough(new DecompressionStream("gzip")),
+    new Blob([data])
+      .stream()
+      .pipeThrough(new DecompressionStream("gzip"), { signal }),
   );
   return decompressed.json();
 }
 
 export async function loadDictionary(
   manifest: DictionaryManifest,
+  signal: AbortSignal,
   onProgress: (done: number, total: number) => void,
 ): Promise<void> {
-  if (dictionaryLoad) return dictionaryLoad;
-  dictionaryLoad = loadDictionaryParts(manifest, onProgress).finally(() => { dictionaryLoad = null; });
-  return dictionaryLoad;
-}
-
-async function loadDictionaryParts(
-  manifest: DictionaryManifest,
-  onProgress: (done: number, total: number) => void,
-): Promise<void> {
-  if (manifest.datasetVersion === "unavailable") return;
+  signal.throwIfAborted();
   const current = (await cache.values.get("dictionaryVersion"))?.value;
   if (current === manifest.datasetVersion) return;
   const similar: Record<string, string[]> = {};
+  const { files } = manifest;
   let done = 0;
-  for (const file of manifest.files) {
-    const data = await unpack(file.path, file.sha256);
-    if (file.kind === "words")
-      await cache.dictionaryWords.bulkPut(
-        (data as DictionaryWord[]).map((word) => ({
-          ...word,
-          datasetVersion: manifest.datasetVersion,
-        })),
-      );
-    if (file.kind === "similar") Object.assign(similar, data);
-    done += 1;
-    onProgress(done, manifest.files.length);
+  for (
+    let start = 0;
+    start < files.length;
+    start += dictionaryDownloadConcurrency
+  ) {
+    signal.throwIfAborted();
+    const controller = new AbortController();
+    const batchSignal = AbortSignal.any([signal, controller.signal]);
+    const batch = files.slice(start, start + dictionaryDownloadConcurrency);
+    const downloads = batch.map((file) => ({
+      file,
+      data: unpack(file.path, file.sha256, batchSignal),
+    }));
+    // Observe every rejection while consuming the downloads in manifest order.
+    const settled = Promise.allSettled(downloads.map(({ data }) => data));
+    try {
+      for (const { file, data: download } of downloads) {
+        const data = await download;
+        signal.throwIfAborted();
+        if (file.kind === "words")
+          await cache.dictionaryWords.bulkPut(
+            (data as DictionaryWord[]).map((word) => ({
+              ...word,
+              datasetVersion: manifest.datasetVersion,
+            })),
+          );
+        if (file.kind === "similar") Object.assign(similar, data);
+        signal.throwIfAborted();
+        done += 1;
+        onProgress(done, files.length);
+      }
+    } catch (error) {
+      controller.abort();
+      await settled;
+      throw error;
+    }
   }
-  await cache.values.bulkPut([
-    { key: "similar", value: similar },
-    { key: "dictionaryVersion", value: manifest.datasetVersion },
-  ]);
-  await cache.dictionaryWords
-    .where("datasetVersion")
-    .notEqual(manifest.datasetVersion)
-    .delete();
+  await cache.transaction(
+    "rw",
+    cache.values,
+    cache.dictionaryWords,
+    async () => {
+      signal.throwIfAborted();
+      await cache.values.bulkPut([
+        { key: "similar", value: similar },
+        { key: "dictionaryVersion", value: manifest.datasetVersion },
+      ]);
+      signal.throwIfAborted();
+      await cache.dictionaryWords
+        .where("datasetVersion")
+        .notEqual(manifest.datasetVersion)
+        .delete();
+      signal.throwIfAborted();
+    },
+  );
 }
 
-export async function cachedSimilar(): Promise<Record<string, string[]>> {
-  return (
-    ((await cache.values.get("similar"))?.value as Record<string, string[]>) ??
-    {}
-  );
+export type CachedDictionary = {
+  version: string | null;
+  similar: Record<string, string[]>;
+};
+
+export async function readDictionary(): Promise<CachedDictionary> {
+  const [version, similar] = await cache.values.bulkGet([
+    "dictionaryVersion",
+    "similar",
+  ]);
+  return {
+    version: value<string>(version),
+    similar: value<Record<string, string[]>>(similar) ?? {},
+  };
 }

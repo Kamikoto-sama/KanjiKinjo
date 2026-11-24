@@ -1,7 +1,15 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   BrowserRouter,
   Navigate,
+  Outlet,
   Route,
   Routes,
   useLocation,
@@ -10,20 +18,18 @@ import {
 import { api, waitForJob, type SyncResult } from "./api";
 import {
   cache,
-  cachedSimilar,
-  loadDictionary,
   readStartup,
   replaceCollection,
+  type CachedDictionary,
 } from "./cache";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { SyncResultsDialog } from "./components/SyncResultsDialog";
-import { Badge } from "./components/ui/badge";
 import { Empty, EmptyHeader, EmptyTitle } from "./components/ui/empty";
-import { Spinner } from "./components/ui/spinner";
 import { Button } from "./components/ui/button";
 import { LoginPage } from "./pages/LoginPage";
 import { ImportPage } from "./pages/ImportPage";
 import { CorrectionsPage } from "./pages/CorrectionsPage";
+import { DictionariesPage } from "./pages/DictionariesPage";
 import { DuplicatesPage } from "./pages/DuplicatesPage";
 import { SetupPage } from "./pages/SetupPage";
 import { WordRoute } from "./pages/WordRoute";
@@ -37,7 +43,6 @@ function Application() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [collectionId, setCollectionId] = useState<string | null>(null);
-  const [similar, setSimilar] = useState<Record<string, string[]>>({});
   const [startup, setStartup] = useState<"loading" | "error" | "ready">(
     "loading",
   );
@@ -48,7 +53,11 @@ function Application() {
   const savedSearch = useRef("");
   const collectionEpoch = useRef(0);
   const automaticSyncStarted = useRef(false);
-  const [dictionaryProgress, setDictionaryProgress] = useState("");
+  const hasCollection = Boolean(status?.hasCollection);
+  const [dictionary, setDictionary] = useState<CachedDictionary>({
+    version: null,
+    similar: {},
+  });
   const [syncIssues, setSyncIssues] = useState<{
     unresolvedCount: number;
     duplicateCount: number;
@@ -74,10 +83,10 @@ function Application() {
     setStatus(next.status);
     setSnapshot(null);
     setSyncIssues(null);
-    navigate("/setup");
+    navigate("/dictionaries");
   }
 
-  function syncDeck(
+  const syncDeck = useCallback(function syncDeck(
     shouldApply?: () => boolean,
     returnFocus?: HTMLElement,
   ): Promise<SyncResult | null> {
@@ -114,7 +123,7 @@ function Application() {
     });
     pendingSync.current = { controller, promise, returnFocus };
     return promise;
-  }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -127,46 +136,9 @@ function Application() {
         if (!active) return;
         setStatus(current.status);
         setSnapshot(current.snapshot);
-        setSimilar(current.similar);
         setCollectionId(current.collectionId);
+        setDictionary(current.dictionary);
         setStartup("ready");
-        if (
-          current.status.hasAnkiSession &&
-          current.status.config &&
-          navigator.onLine &&
-          !automaticSyncStarted.current &&
-          (!current.snapshot ||
-            Date.now() - Date.parse(current.snapshot.syncedAt) > 15 * 60 * 1000)
-        ) {
-          automaticSyncStarted.current = true;
-          void syncDeck(
-            () => !["/import", "/login"].includes(window.location.pathname),
-          ).catch(() => {
-            automaticSyncStarted.current = false;
-          });
-        }
-        void api
-          .manifest()
-          .then(async (manifest) => {
-            if (
-              manifest.datasetVersion === current.dictionaryVersion ||
-              manifest.datasetVersion === "unavailable"
-            )
-              return;
-            await loadDictionary(manifest, (done, total) => {
-              if (active)
-                setDictionaryProgress(`Loading dictionary ${done}/${total}`);
-            });
-            const updated = await cachedSimilar();
-            if (active) {
-              setSimilar(updated);
-              setDictionaryProgress("");
-            }
-          })
-          .catch(() => {
-            if (active && navigator.onLine)
-              setDictionaryProgress("Dictionary download paused");
-          });
       } catch {
         if (active) setStartup("error");
       }
@@ -176,6 +148,31 @@ function Application() {
       active = false;
     };
   }, [startupAttempt]);
+
+  useEffect(() => {
+    const needsSync =
+      !snapshot || Date.now() - Date.parse(snapshot.syncedAt) > 15 * 60 * 1000;
+    if (
+      !dictionary.version ||
+      !status?.hasAnkiSession ||
+      !status.config ||
+      !navigator.onLine ||
+      pathname === "/dictionaries" ||
+      automaticSyncStarted.current ||
+      !needsSync
+    )
+      return;
+
+    automaticSyncStarted.current = true;
+    void syncDeck(
+      () =>
+        !["/import", "/login", "/dictionaries"].includes(
+          window.location.pathname,
+        ),
+    ).catch(() => {
+      automaticSyncStarted.current = false;
+    });
+  }, [dictionary.version, pathname, status, snapshot, syncDeck]);
 
   if (startup === "loading") return <LoadingScreen />;
   if (startup === "error") {
@@ -204,28 +201,6 @@ function Application() {
       <Routes>
         <Route path="/" element={<Navigate to="/import" replace />} />
         <Route
-          path="/search"
-          element={
-            snapshot ? (
-              <Suspense fallback={<LoadingScreen />}>
-                <SearchPage
-                  key={collectionId ?? "legacy"}
-                  snapshot={snapshot}
-                  savedQuery={savedSearch}
-                  config={status?.config || null}
-                  hasAnkiSession={Boolean(status?.hasAnkiSession)}
-                  onSync={(returnFocus) => syncDeck(undefined, returnFocus)}
-                />
-              </Suspense>
-            ) : (
-              <Navigate
-                to={status?.hasCollection ? "/setup" : "/import"}
-                replace
-              />
-            )
-          }
-        />
-        <Route
           path="/import"
           element={
             <ImportPage
@@ -240,34 +215,12 @@ function Application() {
           element={<LoginPage status={status} onReplace={changeCollection} />}
         />
         <Route
-          path="/setup"
+          path="/dictionaries"
           element={
-            <SetupPage
-              key={collectionId ?? "legacy"}
-              initialConfig={status?.config || null}
-              snapshotVersion={snapshot?.snapshotVersion}
-              onReady={(next, config) => {
-                setSnapshot(next);
-                setStatus(
-                  (current) =>
-                    current && {
-                      ...current,
-                      hasCollection: true,
-                      hasSnapshot: true,
-                      config,
-                    },
-                );
-              }}
-            />
-          }
-        />
-        <Route
-          path="/duplicates"
-          element={
-            status?.hasCollection ? (
-              <DuplicatesPage
-                initialConfig={status.config}
-                snapshotVersion={snapshot?.snapshotVersion}
+            hasCollection ? (
+              <DictionariesPage
+                ready={Boolean(dictionary.version)}
+                onReady={setDictionary}
               />
             ) : (
               <Navigate to="/import" replace />
@@ -275,29 +228,100 @@ function Application() {
           }
         />
         <Route
-          path="/corrections"
           element={
-            status?.hasCollection ? (
-              <CorrectionsPage
-                initialConfig={status.config}
-                onSnapshot={setSnapshot}
-              />
+            hasCollection && !dictionary.version ? (
+              <Navigate to="/dictionaries" replace />
             ) : (
-              <Navigate to="/import" replace />
+              <Outlet />
             )
           }
-        />
-        <Route
-          path="/word"
-          element={
-            <WordRoute
-              snapshot={snapshot}
-              status={status}
-              similar={similar}
-              onSync={(returnFocus) => syncDeck(undefined, returnFocus)}
-            />
-          }
-        />
+        >
+          <Route
+            path="/search"
+            element={
+              snapshot ? (
+                <Suspense fallback={<LoadingScreen />}>
+                  <SearchPage
+                    key={collectionId ?? "legacy"}
+                    snapshot={snapshot}
+                    savedQuery={savedSearch}
+                    config={status?.config || null}
+                    hasAnkiSession={Boolean(status?.hasAnkiSession)}
+                    onSync={(returnFocus) => syncDeck(undefined, returnFocus)}
+                  />
+                </Suspense>
+              ) : (
+                <Navigate
+                  to={status?.hasCollection ? "/setup" : "/import"}
+                  replace
+                />
+              )
+            }
+          />
+          <Route
+            path="/setup"
+            element={
+              hasCollection ? (
+                <SetupPage
+                  key={collectionId ?? "legacy"}
+                  initialConfig={status?.config || null}
+                  snapshotVersion={snapshot?.snapshotVersion}
+                  onReady={(next, config) => {
+                    setSnapshot(next);
+                    setStatus(
+                      (current) =>
+                        current && {
+                          ...current,
+                          hasCollection: true,
+                          hasSnapshot: true,
+                          config,
+                        },
+                    );
+                  }}
+                />
+              ) : (
+                <Navigate to="/import" replace />
+              )
+            }
+          />
+          <Route
+            path="/duplicates"
+            element={
+              status?.hasCollection ? (
+                <DuplicatesPage
+                  initialConfig={status.config}
+                  snapshotVersion={snapshot?.snapshotVersion}
+                />
+              ) : (
+                <Navigate to="/import" replace />
+              )
+            }
+          />
+          <Route
+            path="/corrections"
+            element={
+              status?.hasCollection ? (
+                <CorrectionsPage
+                  initialConfig={status.config}
+                  onSnapshot={setSnapshot}
+                />
+              ) : (
+                <Navigate to="/import" replace />
+              )
+            }
+          />
+          <Route
+            path="/word"
+            element={
+              <WordRoute
+                snapshot={snapshot}
+                status={status}
+                similar={dictionary.similar}
+                onSync={(returnFocus) => syncDeck(undefined, returnFocus)}
+              />
+            }
+          />
+        </Route>
         <Route path="*" element={<Navigate to="/import" replace />} />
       </Routes>
       {syncIssues && (
@@ -308,18 +332,6 @@ function Application() {
             if (pathname !== "/setup") navigate("/setup");
           }}
         />
-      )}
-      {dictionaryProgress && (
-        <Badge
-          variant="secondary"
-          className="fixed bottom-4 left-4"
-          role="status"
-        >
-          {dictionaryProgress.startsWith("Loading") && (
-            <Spinner aria-hidden="true" />
-          )}
-          {dictionaryProgress}
-        </Badge>
       )}
     </>
   );
