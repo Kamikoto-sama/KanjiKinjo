@@ -13,7 +13,7 @@ type Props = {
 export function RecordRow({ word, selectedKanji, visualMatch, link }: Props) {
   const content = (
     <ItemContent className="grid min-w-0 grid-cols-2 items-center gap-3 sm:gap-4">
-      <ItemTitle className="word-row-word min-w-0 max-w-full flex-wrap gap-0 wrap-anywhere">
+      <ItemTitle className="word-row-word min-w-0 max-w-full flex-wrap items-baseline gap-0 wrap-anywhere">
         <RubyText word={word} selected={selectedKanji} />
       </ItemTitle>
       <div className="min-w-0 space-y-1 text-right wrap-anywhere">
