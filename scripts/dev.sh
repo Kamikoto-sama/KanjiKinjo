@@ -3,7 +3,7 @@ set -eu
 
 cd -- "$(dirname -- "$0")/.."
 
-if [[ ! -x server/.venv/bin/uvicorn ]] || ! command -v npm >/dev/null; then
+if ! command -v npm >/dev/null || ! server/.venv/bin/python -m uvicorn --version >/dev/null 2>&1; then
     printf '%s\n' 'Install the local development dependencies listed in README.md first.' >&2
     exit 1
 fi
@@ -24,7 +24,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-server/.venv/bin/uvicorn server.main:app --reload --host 127.0.0.1 --port 8001 </dev/null &
+server/.venv/bin/python -m uvicorn server.main:app --reload --host 127.0.0.1 --port 8001 </dev/null &
 api_pid=$!
 KANJIKINJO_API_TARGET=http://127.0.0.1:8001 npm --prefix frontend run dev -- --port 5173 --strictPort </dev/null &
 frontend_pid=$!
