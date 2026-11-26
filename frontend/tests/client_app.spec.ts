@@ -681,6 +681,55 @@ test("Back is disabled when import, search, and word routes open in a new tab", 
   }
 });
 
+test("All relationship dividers open their tabs with mouse and keyboard", async ({
+                                                                                     page,
+                                                                                 }) => {
+    const words: Snapshot["words"] = [
+        ["工事", "こうじ", "construction"],
+        ["工場", "こうじょう", "factory"],
+        ["土地", "とち", "land"],
+        ["麹", "こうじ", "malt"],
+        ["古字", "こじ", "old character"],
+    ].map(([spelling, reading, translation], index) => ({
+        wordId: `word-${index}`,
+        noteIds: [String(index)],
+        spelling,
+        reading,
+        translations: [translation],
+        match: "dictionary",
+    }));
+    await seed(page, {
+        collection: collection("Study"),
+        config,
+        similar: { 工: ["土"] },
+        snapshot: snapshot("Study", words),
+    });
+    await page.goto(
+        `/word?${new URLSearchParams({ spelling: "工事", reading: "こうじ" })}`,
+    );
+    const all = page.getByRole("tab", { name: /^All/ });
+    for (const name of [
+        "Similar reading",
+        "Lookalikes",
+        "Same kanji",
+        "Same reading",
+    ]) {
+        await expect(all).toHaveAttribute("aria-selected", "true");
+        const panel = page.getByRole("tabpanel");
+        const section = panel.getByRole("group", { name, exact: true });
+        if (name === "Same reading") {
+            await section.getByRole("button", { name }).press("Enter");
+        } else {
+            await section.getByRole("heading").click({ position: { x: 4, y: 4 } });
+        }
+        const tab = page.getByRole("tab", { name });
+        await expect(tab).toHaveAttribute("aria-selected", "true");
+        await expect(tab).toBeFocused();
+        await expect(section).toBeInViewport();
+        await all.click();
+    }
+});
+
 test("search Back, related-word pagination, swipe and menu focus work together", async ({
   page,
 }) => {

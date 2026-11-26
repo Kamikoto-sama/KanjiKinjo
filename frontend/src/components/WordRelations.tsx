@@ -1,13 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LinkProps } from "react-router-dom";
-import {
-  groupNames,
-  groupOrder,
-  kanjiOf,
-  readingOf,
-  relatedGroups,
-  uniqueGroups,
-} from "../relations";
+import { groupNames, groupOrder, kanjiOf, readingOf, relatedGroups, uniqueGroups, } from "../relations";
 import type { Group, Word } from "../types";
 import { RelatedWordList } from "./RelatedWordList";
 import { RubyText } from "./RubyText";
@@ -113,6 +106,13 @@ export function WordRelations({
       left: panel.offsetLeft,
       behavior: reduceMotion ? "instant" : "smooth",
     });
+  }
+
+  function selectGroupFromList(kind: Group) {
+    relationTabs.current
+        ?.querySelector<HTMLButtonElement>(`[role="tab"][data-group="${kind}"]`)
+        ?.focus();
+    scrollToTab(kind);
   }
 
   function nearestRelationTab(pages: HTMLDivElement) {
@@ -268,7 +268,9 @@ export function WordRelations({
                       groups={
                         kind === "all" ? allGroups : { [kind]: groups[kind] }
                       }
-                      grouped={kind === "all"}
+                      onSelectGroup={
+                        kind === "all" ? selectGroupFromList : undefined
+                      }
                       {...listProps(kind)}
                     />
                   )}

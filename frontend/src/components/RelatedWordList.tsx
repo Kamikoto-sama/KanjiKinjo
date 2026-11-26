@@ -8,7 +8,7 @@ import { ItemGroup } from "./ui/item";
 
 export function RelatedWordList({
   groups,
-  grouped = false,
+                                  onSelectGroup,
   word,
   wordLink,
   similar,
@@ -17,7 +17,7 @@ export function RelatedWordList({
   onShowMore,
 }: {
   groups: Partial<Record<Group, Word[]>>;
-  grouped?: boolean;
+  onSelectGroup?: (kind: Group) => void;
   word: Word;
   wordLink: (word: Word) => LinkProps;
   similar: Record<string, string[]>;
@@ -53,12 +53,24 @@ export function RelatedWordList({
           aria-label={groupNames[kind]}
           className="gap-2"
         >
-          {grouped && (
+          {onSelectGroup && (
             <h2
               className="relation-label m-0 rounded-md bg-[color-mix(in_srgb,currentColor_24%,var(--background))] px-3 py-1.5 text-center text-base font-semibold"
               data-group={kind}
+              onClick={() => onSelectGroup(kind)}
             >
-              {groupNames[kind]}
+              <span
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onSelectGroup(kind);
+                    }
+                  }}
+              >
+                {groupNames[kind]}
+              </span>
             </h2>
           )}
           {rows.map((item) => (
