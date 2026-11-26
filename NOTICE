@@ -20,6 +20,10 @@ https://creativecommons.org/licenses/by-sa/4.0/
 - JmdictFurigana data, by Doublevil, derived from JMdict. KanjiKinjo uses
   the reading annotations to add furigana to dictionary entries.
   https://github.com/Doublevil/JmdictFurigana#licence
+- KANJIDIC2, by James William Breen and the EDRDG. KanjiKinjo extracts the
+  English meanings of individual kanji.
+  https://www.edrdg.org/kanjidic/kanjd2index_legacy.html
+  https://www.edrdg.org/edrdg/licence.html
 - similar-kanji.tsv, by Kanji Database (kanji-db.com). KanjiKinjo converts
   the pairs into a lookup of visually similar kanji. See the upstream
   attribution for source data, including Yi Bai's IDS component data.

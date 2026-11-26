@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
+import type { CachedDictionary } from "../cache";
 import { MissingWordSyncDialog } from "../components/MissingWordSyncDialog";
 import { type WordHeaderProps, WordLayout } from "../components/WordLayout";
 import { WordRelations } from "../components/WordRelations";
@@ -57,11 +58,11 @@ export function WordReadings({ readings, ...header }: WordHeaderProps & { readin
 
 export default function WordPage({
   word,
-  similar,
+                                     dictionary,
   ...header
 }: WordHeaderProps & {
   word?: Word;
-  similar: Record<string, string[]>;
+    dictionary: CachedDictionary;
 }) {
   const { snapshot, hasAnkiSession, onSync, showUnstudied } = header;
   const visibleWords = snapshotWords(snapshot, showUnstudied).words;
@@ -109,6 +110,7 @@ export default function WordPage({
     <WordLayout
       {...header}
       menuButton={menuButton}
+      cardPath={word ? wordPath(word) : undefined}
       after={
         !word &&
         hasAnkiSession && (
@@ -164,7 +166,8 @@ export default function WordPage({
           <WordRelations
             word={word}
             words={visibleWords}
-            similar={similar}
+            similar={dictionary.similar}
+            kanjiMeanings={dictionary.kanjiMeanings}
             wordLink={wordLink}
             entryKey={location.key}
           />

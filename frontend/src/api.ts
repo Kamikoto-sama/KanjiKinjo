@@ -69,7 +69,7 @@ export type DictionaryManifest = {
     path: string;
     bytes: number;
     sha256: string;
-    kind: "words" | "similar";
+      kind: "words" | "similar" | "kanji-meanings";
   }[];
   sources: { name: string; version: string; url: string; license: string }[];
 };

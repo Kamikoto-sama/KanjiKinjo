@@ -37,7 +37,8 @@ duplicates removed.
 
 On a word’s page, **All** shows each related word once. Use the other tabs to narrow the list.
 
-- **Same kanji** shows words that share a kanji. Select a kanji in the current word to filter by that character, then choose a reading if multiple readings are available.
+- **Same kanji** shows words that share a kanji. Select a kanji in the current word to see its English meanings and
+  filter by that character, then choose a reading if multiple readings are available.
 - **Lookalikes** shows words with visually similar kanji and displays the matching character pairs.
 - **Same reading** shows words with identical readings and different spellings and translations.
 - **Similar reading** shows words whose readings match after removing `う` and small `っ`, such as `交渉（こうしょう）` and `故障（こしょう）`.
@@ -60,6 +61,8 @@ Download the source data and generate the dictionary in `data/dictionary/`.
 python3.13 scripts/fetch_sources.py
 python3.13 -m scripts.build_dictionary
 ```
+
+To refresh the kanji meanings, remove `data/sources/kanjidic2.xml.gz` and rerun both commands.
 
 ### Development server
 
@@ -101,6 +104,8 @@ KanjiKinjo stores your deck data, settings, and AnkiWeb session key in your brow
 
 ## Data sources and license
 
-KanjiKinjo uses JMdict for spellings and readings, JmdictFurigana for furigana annotations, and Kanji Database for visually similar kanji. The generated dictionary data are licensed under CC BY-SA 4.0. See [NOTICE](NOTICE) for attribution.
+KanjiKinjo uses JMdict for spellings and readings, JmdictFurigana for furigana annotations, KANJIDIC2 for English kanji
+meanings, and Kanji Database for visually similar kanji. The generated dictionary data are licensed under CC BY-SA 4.0.
+See [NOTICE](NOTICE) for attribution.
 
 The KanjiKinjo software is licensed under the PolyForm Noncommercial License 1.0.0. See [LICENSE](LICENSE).

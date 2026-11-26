@@ -51,6 +51,7 @@ function Application() {
   const [dictionary, setDictionary] = useState<CachedDictionary>({
     version: null,
     similar: {},
+      kanjiMeanings: {},
   });
   const [syncIssues, setSyncIssues] = useState<{
     unresolvedCount: number;
@@ -359,7 +360,7 @@ function Application() {
                   {...unstudiedPreference}
                 snapshot={snapshot}
                 status={status}
-                similar={dictionary.similar}
+                  dictionary={dictionary}
                   onSync={syncFromPage}
               />
             }

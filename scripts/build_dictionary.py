@@ -12,6 +12,8 @@ from pathlib import Path
 
 from server.text import has_kanji, normalize_reading, normalize_spelling, word_id
 
+from .fetch_sources import KANJIDIC2_URL
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES = ROOT / "data" / "sources"
 OUTPUT = ROOT / "data" / "dictionary"
@@ -83,6 +85,31 @@ def similar_kanji() -> dict[str, list[str]]:
     return {key: sorted(values) for key, values in result.items()}
 
 
+def kanji_meanings(path: Path) -> tuple[str, dict[str, list[str]]]:
+    version = None
+    entries = {}
+    with gzip.open(path, "rb") as source:
+        for _, element in ET.iterparse(source, events=("end",)):
+            if element.tag == "header":
+                version = element.findtext("database_version")
+            if element.tag != "character":
+                continue
+            literal = element.findtext("literal")
+            meanings = dict.fromkeys(
+                meaning.text.strip()
+                for meaning in element.findall("reading_meaning/rmgroup/meaning")
+                if meaning.get("m_lang", "en") == "en"
+                and meaning.text
+                and meaning.text.strip()
+            )
+            if literal and meanings:
+                entries[literal] = list(meanings)
+            element.clear()
+    if not version or not entries:
+        raise ValueError("KANJIDIC2 source version or English meanings are missing")
+    return version, entries
+
+
 def write_part(name: str, kind: str, value: object) -> dict:
     path = OUTPUT / name
     with (
@@ -103,6 +130,8 @@ def write_part(name: str, kind: str, value: object) -> dict:
 
 def build() -> None:
     version = source_version()
+    kanjidic_path = SOURCES / "kanjidic2.xml.gz"
+    kanjidic_version, meanings = kanji_meanings(kanjidic_path)
     OUTPUT.mkdir(parents=True, exist_ok=True)
     furigana = furigana_entries()
     seen: set[tuple[str, str]] = set()
@@ -125,6 +154,7 @@ def build() -> None:
     if chunk:
         files.append(write_part(f"words-{len(files):03d}.json.gz", "words", chunk))
     files.append(write_part("similar.json.gz", "similar", similar_kanji()))
+    files.append(write_part("kanji-meanings.json.gz", "kanji-meanings", meanings))
     manifest = {
         "schemaVersion": 1,
         "datasetVersion": version,
@@ -148,6 +178,13 @@ def build() -> None:
                 "sha256": hashlib.sha256(
                     (SOURCES / "JmdictFurigana.json.tar.gz").read_bytes()
                 ).hexdigest(),
+            },
+            {
+                "name": "KANJIDIC2",
+                "version": kanjidic_version,
+                "url": KANJIDIC2_URL,
+                "license": "EDRDG / CC BY-SA 4.0",
+                "sha256": hashlib.sha256(kanjidic_path.read_bytes()).hexdigest(),
             },
             {
                 "name": "Kanji Database similar-kanji",

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { SyncResult } from "../api";
+import type { CachedDictionary } from "../cache";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { snapshotWords } from "../snapshot";
 import type { Snapshot, Status, UnstudiedPreference, Word } from "../types";
@@ -14,13 +15,13 @@ const WordReadings = lazy(() =>
 export function WordRoute({
   snapshot,
   status,
-  similar,
+                              dictionary,
   onSync,
                             ...preference
                           }: UnstudiedPreference & {
   snapshot: Snapshot | null;
   status: Status | null;
-  similar: Record<string, string[]>;
+    dictionary: CachedDictionary;
   onSync: (returnFocus?: HTMLElement) => Promise<SyncResult | null>;
 }) {
   const location = useLocation();
@@ -107,7 +108,7 @@ export function WordRoute({
               {...header}
             key={location.key}
             word={word}
-            similar={similar}
+              dictionary={dictionary}
           />
           )}
         </Suspense>

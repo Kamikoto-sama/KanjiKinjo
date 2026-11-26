@@ -326,6 +326,7 @@ export async function loadDictionary(
   const current = (await cache.values.get("dictionaryVersion"))?.value;
   if (current === manifest.datasetVersion) return;
   const similar: Record<string, string[]> = {};
+    const kanjiMeanings: Record<string, string[]> = {};
   const { files } = manifest;
   let done = 0;
   for (
@@ -355,6 +356,7 @@ export async function loadDictionary(
             })),
           );
         if (file.kind === "similar") Object.assign(similar, data);
+          if (file.kind === "kanji-meanings") Object.assign(kanjiMeanings, data);
         signal.throwIfAborted();
         done += 1;
         onProgress(done, files.length);
@@ -373,6 +375,7 @@ export async function loadDictionary(
       signal.throwIfAborted();
       await cache.values.bulkPut([
         { key: "similar", value: similar },
+          { key: "kanjiMeanings", value: kanjiMeanings },
         { key: "dictionaryVersion", value: manifest.datasetVersion },
       ]);
       signal.throwIfAborted();
@@ -388,15 +391,18 @@ export async function loadDictionary(
 export type CachedDictionary = {
   version: string | null;
   similar: Record<string, string[]>;
+    kanjiMeanings: Record<string, string[]>;
 };
 
 export async function readDictionary(): Promise<CachedDictionary> {
-  const [version, similar] = await cache.values.bulkGet([
+    const [version, similar, kanjiMeanings] = await cache.values.bulkGet([
     "dictionaryVersion",
     "similar",
+        "kanjiMeanings",
   ]);
   return {
     version: value<string>(version),
     similar: value<Record<string, string[]>>(similar) ?? {},
+      kanjiMeanings: value<Record<string, string[]>>(kanjiMeanings) ?? {},
   };
 }

@@ -6,6 +6,7 @@ import {
   Link2Icon,
   RefreshCwIcon,
   SearchIcon,
+  Share2Icon,
   SlidersHorizontal,
 } from "lucide-react";
 import { type ReactNode, type RefObject, useRef, useState } from "react";
@@ -43,11 +44,13 @@ export function WordLayout({
                              onShowUnstudiedChange,
   searchInput,
   menuButton,
+                             cardPath,
   children,
   after,
 }: WordHeaderProps & {
   searchInput?: RefObject<HTMLInputElement | null>;
   menuButton: RefObject<HTMLButtonElement | null>;
+  cardPath?: string;
   children: ReactNode;
   after?: ReactNode;
 }) {
@@ -167,6 +170,22 @@ export function WordLayout({
                   <SlidersHorizontal aria-hidden="true" />
                   Configure Deck &amp; fields
                 </DropdownMenuItem>
+                {cardPath && (
+                    <DropdownMenuItem
+                        onSelect={async () => {
+                          try {
+                            const url = new URL(cardPath, window.location.origin);
+                            await navigator.clipboard.writeText(url.href);
+                            toast.success("Card link copied");
+                          } catch {
+                            toast.error("Could not copy the link");
+                          }
+                        }}
+                    >
+                      <Share2Icon aria-hidden="true"/>
+                      Copy card link
+                    </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onSelect={() => setLinkDialogOpen(true)}>
                   <Link2Icon aria-hidden="true" />
                   Show card link template

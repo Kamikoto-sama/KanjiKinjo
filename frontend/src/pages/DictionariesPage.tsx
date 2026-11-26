@@ -1,25 +1,11 @@
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  BookOpenIcon,
-  DownloadIcon,
-} from "lucide-react";
+import { ArrowLeftIcon, ArrowRightIcon, BookOpenIcon, DownloadIcon, } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type DictionaryManifest } from "../api";
-import {
-  loadDictionary,
-  readDictionary,
-  type CachedDictionary,
-} from "../cache";
+import { type CachedDictionary, loadDictionary, readDictionary, } from "../cache";
 import { FormError } from "../components/FormError";
 import { Button } from "../components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "../components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, } from "../components/ui/card";
 import { goBack } from "../navigation";
 
 function formatDownloadSize(manifest: DictionaryManifest) {
@@ -136,9 +122,9 @@ export function DictionariesPage({
                   Japanese dictionary data
                 </h2>
                 <p className="mt-2 mb-0 text-sm leading-relaxed text-muted-foreground">
-                  KanjiKinjo uses dictionary data to find readings, add
-                  furigana, and find words in your deck with visually similar
-                  kanji. The data is stored on this device for offline use.
+                  KanjiKinjo uses dictionary data for readings, furigana,
+                  kanji meanings, and visually similar kanji. The data
+                  is stored on this device for offline use.
                 </p>
               </div>
             </div>

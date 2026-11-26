@@ -258,6 +258,11 @@ test("dictionary download starts on demand, cancels on Back, and waits for Conti
       kind: "similar",
       body: gzipSync('{"転":["伝"]}'),
     },
+      {
+          path: "kanji-meanings.json.gz",
+          kind: "kanji-meanings",
+          body: gzipSync('{"転":["revolve"]}'),
+      },
   ];
   let manifestRequests = 0;
   await page.route("**/api/dictionary/manifest", (route) => {
@@ -324,7 +329,7 @@ test("dictionary download starts on demand, cancels on Back, and waits for Conti
   );
   await download.click();
   await expect(page.getByRole("status")).toContainText(
-    "1 of 2 files downloaded",
+      "1 of 3 files downloaded",
   );
   await expect(page.getByLabel("Deck", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Back", exact: true }).click();
@@ -342,7 +347,7 @@ test("dictionary download starts on demand, cancels on Back, and waits for Conti
   expect(similarDownloads).toBe(1);
   await download.click();
   await expect(page.getByRole("status")).toContainText(
-    "1 of 2 files downloaded",
+      "1 of 3 files downloaded",
   );
   secondDownload.resolve();
   await expect(page.getByRole("alert")).toContainText(
@@ -356,6 +361,7 @@ test("dictionary download starts on demand, cancels on Back, and waits for Conti
   await expect(page).toHaveURL(/\/dictionaries$/);
   expect(await stored(page, "dictionaryVersion")).toBe("fixture");
   expect(await stored(page, "similar")).toEqual({ 転: ["伝"] });
+    expect(await stored(page, "kanjiMeanings")).toEqual({ 転: ["revolve"] });
   await continueSetup.click();
   await expect(page).toHaveURL(/\/setup$/);
   await expect(
@@ -896,6 +902,67 @@ test("All relationship dividers open their tabs with mouse and keyboard", async 
         await expect(section).toBeInViewport();
         await all.click();
     }
+});
+
+test("the word page shows downloaded English meanings for the selected kanji offline", async ({
+                                                                                                  page,
+                                                                                                  context,
+                                                                                              }) => {
+    const title = "Study";
+    const words: Snapshot["words"] = [
+        ["活動", "かつどう", "activity"],
+        ["運動", "うんどう", "exercise"],
+    ].map(([spelling, reading, translation], index) => ({
+        wordId: `word-${index}`,
+        noteIds: [String(index)],
+        spelling,
+        reading,
+        translations: [translation],
+        match: "dictionary",
+    }));
+    await seed(page, {
+        collection: collection(title),
+        config,
+        snapshot: snapshot(title, words),
+        kanjiMeanings: { 動: ["move", "motion"] },
+    });
+    await page.route("**/api/dictionary/**", (route) => route.abort());
+
+    await page.goto(`/word?${new URLSearchParams({ spelling: "活動", reading: "かつどう" })}`);
+    const meanings = page.getByText("Kanji meaning: move · motion", {
+        exact: true,
+    });
+    const select = page.getByRole("button", { name: /^Show words with 動/ });
+    const sameKanji = page.getByText("Same kanji: 動 (1)", { exact: true });
+    await expect(select).toBeVisible();
+    await context.setOffline(true);
+    await expect(meanings).toHaveCount(0);
+    await select.click();
+    await expect(meanings).toBeVisible();
+    await expect(sameKanji).toBeVisible();
+    const headingSize = await sameKanji.evaluate(
+        (element) => getComputedStyle(element).fontSize,
+    );
+    await expect(meanings.getByText("Kanji meaning:", { exact: true })).toHaveCSS(
+        "font-size",
+        headingSize,
+    );
+    await expect(meanings.getByText("move · motion", { exact: true })).toHaveCSS(
+        "font-size",
+        headingSize,
+    );
+    const translation = await page.getByText("activity", { exact: true }).boundingBox();
+    const meaningsBox = await meanings.boundingBox();
+    const sameKanjiBox = await sameKanji.boundingBox();
+    expect(translation!.y).toBeLessThan(meaningsBox!.y);
+    expect(meaningsBox!.y).toBeLessThan(sameKanjiBox!.y);
+    await page.getByRole("button", { name: /^Show words with 活/ }).click();
+    await expect(meanings).toHaveCount(0);
+    await expect(page.getByText("Same kanji: 活 (0)", { exact: true })).toBeVisible();
+    await select.click();
+    await expect(meanings).toBeVisible();
+    await page.getByRole("button", { name: "Clear ×" }).click();
+    await expect(meanings).toHaveCount(0);
 });
 
 test("search Back, related-word pagination, swipe and menu focus work together", async ({

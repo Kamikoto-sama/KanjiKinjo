@@ -8,6 +8,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
+import { CircleX } from "lucide-react";
 
 const pageSize = 50;
 
@@ -15,12 +16,14 @@ export function WordRelations({
   word,
   words,
   similar,
+                                kanjiMeanings,
   wordLink,
   entryKey,
 }: {
   word: Word;
   words: Word[];
   similar: Record<string, string[]>;
+  kanjiMeanings: Record<string, string[]>;
   wordLink: (word: Word) => LinkProps;
   entryKey: string;
 }) {
@@ -127,6 +130,9 @@ export function WordRelations({
     setGroup(kind);
   }
 
+  const selectedMeanings = selectedKanji
+      ? kanjiMeanings[selectedKanji]
+      : undefined;
   const matches = selectedKanji
     ? groups.same.filter((item) => kanjiOf(item).includes(selectedKanji))
     : [];
@@ -180,17 +186,25 @@ export function WordRelations({
       </div>
       {selectedKanji && (
         <div className="border-b px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+          {selectedMeanings && selectedMeanings.length > 0 && (
+              <p className="mt-0 mb-1" lang="en">
+                <strong>Kanji meaning:</strong>{" "}
+                <span className="text-muted-foreground">
+                {selectedMeanings.join(" · ")}
+              </span>
+              </p>
+          )}
+          <div className="flex flex-wrap items-center justify-start gap-2">
             <strong>
               Same kanji: {selectedKanji} ({filtered.length})
             </strong>
             <Button
-              variant="ghost"
+                variant="secondary"
               size="sm"
               type="button"
               onClick={() => filterByKanji(null)}
             >
-              Clear ×
+              Clear <CircleX/>
             </Button>
           </div>
           {readings.length > 1 && (

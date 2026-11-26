@@ -3,9 +3,11 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent / "data" / "sources"
+KANJIDIC2_URL = "https://www.edrdg.org/kanjidic/kanjidic2.xml.gz"
 SOURCES = {
     "JMdict_e.gz": "https://www.edrdg.org/pub/Nihongo/JMdict_e.gz",
     "JmdictFurigana.json.tar.gz": "https://github.com/Doublevil/JmdictFurigana/releases/download/2.3.1%2B2026-10-25/JmdictFurigana.json.tar.gz",
+    "kanjidic2.xml.gz": KANJIDIC2_URL,
     "similar-kanji.tsv": "https://raw.githubusercontent.com/uball/kanji-db-data/main/data/similar-kanji.tsv",
 }
 
