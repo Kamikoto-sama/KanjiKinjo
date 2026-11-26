@@ -1,27 +1,7 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import {
-  BrowserRouter,
-  Navigate,
-  Outlet,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
-import { api, waitForJob, type SyncResult } from "./api";
-import {
-  cache,
-  readStartup,
-  replaceCollection,
-  type CachedDictionary,
-} from "./cache";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, } from "react";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, } from "react-router-dom";
+import { api, type SyncResult, waitForJob } from "./api";
+import { cache, type CachedDictionary, readStartup, replaceCollection, } from "./cache";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { SyncResultsDialog } from "./components/SyncResultsDialog";
 import { Empty, EmptyHeader, EmptyTitle } from "./components/ui/empty";
@@ -199,7 +179,15 @@ function Application() {
   return (
     <>
       <Routes>
-        <Route path="/" element={<Navigate to="/import" replace />} />
+        <Route
+            path="/"
+            element={
+              <Navigate
+                  to={snapshot && dictionary.version ? "/search" : "/import"}
+                  replace
+              />
+            }
+        />
         <Route
           path="/import"
           element={

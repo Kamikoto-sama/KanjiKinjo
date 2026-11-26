@@ -1,12 +1,7 @@
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
-import { expect, test, type Page } from "@playwright/test";
-import type {
-  CollectionData,
-  Config,
-  Snapshot,
-  StudiedNote,
-} from "../src/types";
+import { expect, type Page, test } from "@playwright/test";
+import type { CollectionData, Config, Snapshot, StudiedNote, } from "../src/types";
 
 const auth = { email: "study@example.test", hkey: "fixture", endpoint: "" };
 const config: Config = {
@@ -157,6 +152,18 @@ test("startup reports denied IndexedDB access and retries in the same document",
   expect(await page.locator("html").getAttribute("data-allow-database")).toBe(
     "yes",
   );
+});
+
+test("the home route opens import until setup is complete", async ({ page }) => {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/import$/);
+
+  await seed(page, { collection: collection("Imported deck") });
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/import$/);
+  await expect(
+      page.getByRole("heading", { name: "Import deck", exact: true }),
+  ).toBeVisible();
 });
 
 test("login retries a lost result response and opens the new setup without reloading", async ({
@@ -364,7 +371,7 @@ test("dictionary download starts on demand, cancels on Back, and waits for Conti
   expect(similarDownloads).toBe(3);
 });
 
-test("an older snapshot triggers automatic AnkiWeb sync on startup", async ({
+test("the home route opens search and syncs an older snapshot", async ({
   page,
 }) => {
   await seed(page, {
@@ -389,7 +396,8 @@ test("an older snapshot triggers automatic AnkiWeb sync on startup", async ({
       },
     }),
   );
-  await page.goto("/search");
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/search$/);
   await expect(page.getByText("Updated deck", { exact: true })).toBeVisible();
   expect(jobs).toBe(1);
 });
