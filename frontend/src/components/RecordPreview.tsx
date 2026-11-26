@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 import type { Word } from "../types";
 
-export function RecordPreview({ words }: { words: Word[] }) {
+export function RecordPreview({ words, hasHiddenWords }: { words: Word[]; hasHiddenWords: boolean }) {
   const [page, setPage] = useState(0);
   const pageCount = Math.max(1, Math.ceil(words.length / 3));
   const currentPage = Math.min(page, pageCount - 1);
@@ -16,10 +16,13 @@ export function RecordPreview({ words }: { words: Word[] }) {
     return (
       <Alert className="import-notice" variant="warning" role="status">
         <TriangleAlertIcon aria-hidden="true" />
-        <AlertTitle>No importable words with these fields</AlertTitle>
+          <AlertTitle>
+              {hasHiddenWords ? "No studied words with these fields" : "No importable words with these fields"}
+          </AlertTitle>
         <AlertDescription>
-          Choose the field containing the Japanese word, then save the fields
-          again.
+            {hasHiddenWords
+                ? "Turn on Show unstudied words to see the available words."
+                : "Choose the field containing the Japanese word, then save the fields again."}
         </AlertDescription>
       </Alert>
     );

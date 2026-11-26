@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type PreparedSetup } from "../api";
+import { api, type PreparedSetup, setupPreview } from "../api";
 import type { Config } from "../types";
 
 function prepare(
@@ -18,9 +18,11 @@ function prepare(
 
 export function useSetupPreview(
   config: Config | null,
+  showUnstudied: boolean,
+  hasUnstudiedData: boolean,
   snapshotVersion?: string,
 ) {
-  const key = config ? JSON.stringify([snapshotVersion, config]) : "";
+    const key = config ? JSON.stringify([snapshotVersion, hasUnstudiedData, config]) : "";
   const request = useRef<{
     key: string;
     promise: Promise<PreparedSetup>;
@@ -64,8 +66,10 @@ export function useSetupPreview(
     };
   }, [config, key]);
 
+    const prepared = result?.key === key ? result.prepared : null;
   return {
-    preview: result?.key === key ? result.prepared.preview : null,
+      preview: prepared ? setupPreview(prepared, showUnstudied) : null,
+      previewIncludingUnstudied: prepared?.previewIncludingUnstudied,
     error: failure?.key === key ? failure.message : "",
     getPrepared: () => {
       if (!config) throw new Error("Select a deck first");

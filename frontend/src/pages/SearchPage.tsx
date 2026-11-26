@@ -1,6 +1,7 @@
-import { useRef, type RefObject } from "react";
-import { WordLayout, type WordHeaderProps } from "../components/WordLayout";
+import { type RefObject, useRef } from "react";
+import { type WordHeaderProps, WordLayout } from "../components/WordLayout";
 import { WordSearch } from "../components/WordSearch";
+import { snapshotWords } from "../snapshot";
 
 export default function SearchPage({
   savedQuery,
@@ -13,7 +14,8 @@ export default function SearchPage({
   return (
     <WordLayout {...header} searchInput={searchInput} menuButton={menuButton}>
       <WordSearch
-        words={header.snapshot.words}
+          words={snapshotWords(header.snapshot, header.showUnstudied).words}
+          showingUnstudied={header.showUnstudied && Boolean(header.snapshot.includingUnstudied)}
         savedQuery={savedQuery}
         inputRef={searchInput}
       />

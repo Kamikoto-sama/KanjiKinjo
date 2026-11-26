@@ -3,7 +3,8 @@
 A web app that helps you remember Japanese vocabulary by finding connections between words you’ve already reviewed in Anki. When a kanji or reading looks familiar, you can see which other words in your deck use it.
 
 - Automatically sync from AnkiWeb or import an Anki export manually.
-- Search reviewed words by their Japanese spelling and see their readings with furigana.
+- Search words by their Japanese spelling and see their readings with furigana. You can include words you haven't
+  reviewed yet.
 - Explore words in your deck that share kanji, contain visually similar kanji, or have the same or similar readings.
 - Open a word’s page directly from an Anki card.
 - Offline use. Install as a web app in a supported browser and browse your last synced or imported deck offline after initial setup.
@@ -25,7 +26,14 @@ Anki fills in the word fields when it renders the card.
 
 ## Which words appear?
 
-KanjiKinjo uses words from your selected deck that contain at least one kanji and have at least one card you’ve answered in Anki. Mixed kanji and kana spellings such as `食べる` are included. Notes with the same spelling and reading appear as one word, with their Anki translations combined and duplicates removed.
+KanjiKinjo uses words from your selected deck that contain at least one kanji. Mixed kanji and kana spellings such as
+`食べる` are included. By default, lists show words with at least one card you’ve answered in Anki. Turn on **Show
+unstudied words** in **Deck & fields** or in the **⋯** menu on the search or word page to include the rest. A direct
+link can open an unstudied word regardless of the setting. If you imported or synced before this option was available,
+sync or re-import your deck to download the unstudied words.
+
+Notes with the same spelling and reading appear as one word, with translations from the visible notes combined and
+duplicates removed.
 
 On a word’s page, **All** shows each related word once. Use the other tabs to narrow the list.
 

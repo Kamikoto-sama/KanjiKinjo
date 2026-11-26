@@ -12,14 +12,20 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { SyncResult } from "../api";
 import { canGoBack } from "../navigation";
-import type { Config, Snapshot } from "../types";
+import type { Config, Snapshot, UnstudiedPreference } from "../types";
 import { CardLinkTemplateDialog } from "./CardLinkTemplateDialog";
+import { UnstudiedDataNotice } from "./WordNotices";
 import { Button } from "./ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, } from "./ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 import { Spinner } from "./ui/spinner";
-import { Toaster } from "./ui/sonner";
 
-export type WordHeaderProps = {
+export type WordHeaderProps = UnstudiedPreference & {
   snapshot: Snapshot;
   config: Config | null;
   hasAnkiSession: boolean;
@@ -31,6 +37,9 @@ export function WordLayout({
   config,
   hasAnkiSession,
   onSync,
+                             showUnstudied,
+                             savingUnstudiedPreference,
+                             onShowUnstudiedChange,
   searchInput,
   menuButton,
   children,
@@ -139,6 +148,15 @@ export function WordLayout({
                   <SearchIcon aria-hidden="true" />
                   Search words
                 </DropdownMenuItem>
+                <DropdownMenuCheckboxItem
+                    indicator="switch"
+                    checked={showUnstudied}
+                    disabled={savingUnstudiedPreference}
+                    onCheckedChange={onShowUnstudiedChange}
+                    onSelect={(event) => event.preventDefault()}
+                >
+                  Show unstudied words
+                </DropdownMenuCheckboxItem>
                 <DropdownMenuItem onSelect={() => navigate("/import")}>
                   <ImportIcon aria-hidden="true" />
                   Re-import deck
@@ -156,6 +174,11 @@ export function WordLayout({
           </div>
         </header>
 
+        {showUnstudied && !snapshot.includingUnstudied && (
+            <div className="mx-4 mt-3 shrink-0">
+              <UnstudiedDataNotice hasAnkiSession={hasAnkiSession}/>
+            </div>
+        )}
         {children}
       </div>
       {after}
@@ -165,7 +188,6 @@ export function WordLayout({
         onOpenChange={setLinkDialogOpen}
         returnFocus={menuButton}
       />
-      <Toaster closeButton />
     </main>
   );
 }

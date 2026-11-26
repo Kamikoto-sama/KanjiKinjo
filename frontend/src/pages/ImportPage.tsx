@@ -115,7 +115,7 @@ export function ImportPage({ status, onReplace }: Props) {
                       Signed in as <strong>{status.ankiAccount || "[unknown account]"}</strong>
                     </>
                   ) : (
-                    "Sign in to sync and import your studied cards from AnkiWeb."
+                      "Sign in to sync and import your cards from AnkiWeb."
                   )}
                 </CardDescription>
               </CardHeader>

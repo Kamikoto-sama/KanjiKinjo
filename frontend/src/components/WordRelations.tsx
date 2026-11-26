@@ -137,9 +137,14 @@ export function WordRelations({
         .filter((item): item is string => Boolean(item)),
     ),
   ];
+  const activeReading = selectedReading && readings.includes(selectedReading) ? selectedReading : null;
+  useEffect(() => {
+    if (activeReading !== selectedReading) setSelectedReading(activeReading);
+  }, [activeReading, selectedReading]);
+
   const filtered = matches.filter(
     (item) =>
-      !selectedReading || readingOf(item, selectedKanji!) === selectedReading,
+        !activeReading || readingOf(item, selectedKanji!) === activeReading,
   );
   function listProps(pageKey: string) {
     const limit = limits[pageKey] ?? pageSize;
@@ -159,7 +164,7 @@ export function WordRelations({
 
   return (
     <>
-      <div className="word-hero">
+      <div className="word-hero" data-unstudied={word.unstudied}>
         <div className="selected-word">
           <RubyText
             word={word}
@@ -171,6 +176,7 @@ export function WordRelations({
           />
         </div>
         <div className="selected-meaning">{word.translations.join(" · ")}</div>
+        {word.unstudied && <Badge className="mt-2" variant="secondary">Unstudied</Badge>}
       </div>
       {selectedKanji && (
         <div className="border-b px-4 py-3">
@@ -194,7 +200,7 @@ export function WordRelations({
               size="sm"
               className="mt-2 flex-wrap"
               aria-label="Filter by reading"
-              value={selectedReading ?? ""}
+              value={activeReading ?? ""}
               onValueChange={(reading) => setSelectedReading(reading || null)}
             >
               {readings.map((reading) => (
@@ -210,7 +216,7 @@ export function WordRelations({
         {selectedKanji ? (
           <RelatedWordList
             groups={{ same: filtered }}
-            {...listProps(`kanji:${selectedKanji}:${selectedReading ?? ""}`)}
+            {...listProps(`kanji:${selectedKanji}:${activeReading ?? ""}`)}
           />
         ) : availableTabs.length ? (
           <Tabs

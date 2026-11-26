@@ -1,15 +1,8 @@
-import { useEffect, useState, type RefObject } from "react";
+import { type RefObject, useEffect, useState } from "react";
 import { api } from "../api";
 import type { Config, NoteType } from "../types";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogTitle, } from "./ui/dialog";
 import { Field, FieldDescription, FieldLabel } from "./ui/field";
 import { Textarea } from "./ui/textarea";
 import { useDialogFocus } from "./useDialogFocus";
@@ -63,7 +56,7 @@ export function CardLinkTemplateDialog({
       <DialogContent {...focus} showCloseButton={false}>
         <DialogTitle>Card link template</DialogTitle>
         <DialogDescription>
-          Add this link to an Anki card template to open the matching studied
+            Add this link to an Anki card template to open the matching
           word in KanjiKinjo. Anki replaces the field names with values from
           each card. Use each link in the card templates belonging to the named
           note type.

@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { api, type PreparedSetup } from "../api";
-import type { Config, Snapshot } from "../types";
+import { api, type PreparedSetup, setupPreview } from "../api";
+import { readShowUnstudiedWords } from "../cache";
+import { snapshotWords } from "../snapshot";
+import type { Config, Snapshot, UnresolvedWord } from "../types";
 
-function unresolvedSignature(prepared: PreparedSetup) {
+function unresolvedSignature(unresolved: UnresolvedWord[]) {
   return JSON.stringify(
-    prepared.preview.unresolved
+      unresolved
       .map(({ noteId, noteTypeId, spelling, reading, reason }) =>
         JSON.stringify([noteId, noteTypeId, spelling, reading, reason]),
       )
@@ -27,6 +29,7 @@ export function useSetupSave({
   const [pendingSkip, setPendingSkip] = useState<{
     prepared: PreparedSetup;
     signature: string;
+      count: number;
     trigger: HTMLButtonElement;
   } | null>(null);
 
@@ -43,13 +46,12 @@ export function useSetupSave({
       for (;;) {
         prepared = await api.refreshSetup(prepared);
         showPrepared(prepared);
-        if (!prepared.snapshot.words.length) return;
-        const signature = unresolvedSignature(prepared);
-        if (
-          prepared.preview.unresolved.length &&
-          signature !== confirmation?.signature
-        ) {
-          setPendingSkip({ prepared, signature, trigger });
+          const showUnstudied = await readShowUnstudiedWords();
+          if (!snapshotWords(prepared.snapshot, showUnstudied).words.length) return;
+          const { unresolved } = setupPreview(prepared, showUnstudied);
+          const signature = unresolvedSignature(unresolved);
+          if (unresolved.length && signature !== confirmation?.signature) {
+              setPendingSkip({ prepared, signature, count: unresolved.length, trigger });
           return;
         }
         if (await api.saveSetup(prepared)) break;
@@ -68,7 +70,7 @@ export function useSetupSave({
     busy,
     save: (trigger: HTMLButtonElement) => finishSetup(trigger),
     skipWarning: pendingSkip && {
-      count: pendingSkip.prepared.preview.unresolved.length,
+        count: pendingSkip.count,
       returnFocus: pendingSkip.trigger,
     },
     dismissSkip: () => setPendingSkip(null),

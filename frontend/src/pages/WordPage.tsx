@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useRef } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { MissingWordSyncDialog } from "../components/MissingWordSyncDialog";
-import { WordLayout, type WordHeaderProps } from "../components/WordLayout";
+import { type WordHeaderProps, WordLayout } from "../components/WordLayout";
 import { WordRelations } from "../components/WordRelations";
+import { Badge } from "../components/ui/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -11,14 +12,48 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "../components/ui/breadcrumb";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyTitle,
-} from "../components/ui/empty";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, } from "../components/ui/empty";
+import { Item, ItemContent, ItemGroup, ItemTitle } from "../components/ui/item";
+import { snapshotWords } from "../snapshot";
 import type { Word } from "../types";
 import { wordPath } from "../wordPath";
+
+export function WordReadings({ readings, ...header }: WordHeaderProps & { readings: Word[] }) {
+  const menuButton = useRef<HTMLButtonElement>(null);
+  return (
+      <WordLayout {...header} menuButton={menuButton}>
+        <section className="word-content">
+          <div className="mx-auto w-full max-w-2xl space-y-3 px-4 py-5">
+            <h1 className="text-lg font-semibold">Choose a reading</h1>
+            {readings.length ? (
+                <ItemGroup role="group" aria-label="Available readings" className="gap-2">
+                  {readings.map((word) => (
+                      <Item asChild key={word.wordId} variant="outline">
+                        <Link
+                            to={wordPath(word)}
+                            replace
+                            data-unstudied={word.unstudied}
+                            className="text-foreground no-underline"
+                        >
+                          <ItemContent>
+                            <ItemTitle>{word.spelling}</ItemTitle>
+                          </ItemContent>
+                          {word.unstudied && <Badge variant="secondary">Unstudied</Badge>}
+                          <Badge variant="secondary">{word.reading}</Badge>
+                        </Link>
+                      </Item>
+                  ))}
+                </ItemGroup>
+            ) : (
+                <p className="text-muted-foreground">
+                  Turn on Show unstudied words in the menu to see the available readings.
+                </p>
+            )}
+          </div>
+        </section>
+      </WordLayout>
+  );
+}
 
 export default function WordPage({
   word,
@@ -28,7 +63,9 @@ export default function WordPage({
   word?: Word;
   similar: Record<string, string[]>;
 }) {
-  const { snapshot, hasAnkiSession, onSync } = header;
+  const { snapshot, hasAnkiSession, onSync, showUnstudied } = header;
+  const visibleWords = snapshotWords(snapshot, showUnstudied).words;
+  const allWords = snapshotWords(snapshot, true).words;
   const location = useLocation();
   const [params] = useSearchParams();
   const crumbs = useRef<HTMLElement>(null);
@@ -93,7 +130,7 @@ export default function WordPage({
         >
           <BreadcrumbList className="m-0 w-max list-none flex-nowrap p-0 text-base">
             {trail.map((id, index) => {
-              const item = snapshot.words.find((entry) => entry.wordId === id);
+              const item = allWords.find((entry) => entry.wordId === id);
               if (!item) return null;
               return (
                 <Fragment key={id}>
@@ -126,7 +163,7 @@ export default function WordPage({
         {word ? (
           <WordRelations
             word={word}
-            words={snapshot.words}
+            words={visibleWords}
             similar={similar}
             wordLink={wordLink}
             entryKey={location.key}
@@ -138,7 +175,7 @@ export default function WordPage({
                 <h1 className="m-0 text-lg">Word unavailable</h1>
               </EmptyTitle>
               <EmptyDescription>
-                This word is not in the current studied deck.
+                This word is not in the current deck.
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

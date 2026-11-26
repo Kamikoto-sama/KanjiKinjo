@@ -1,24 +1,23 @@
-import { ArrowLeftIcon } from "lucide-react";
 import { lazy, Suspense, useEffect } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import type { SyncResult } from "../api";
 import { LoadingScreen } from "../components/LoadingScreen";
-import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
-import { Card, CardContent, CardHeader } from "../components/ui/card";
-import { Item, ItemContent, ItemGroup, ItemTitle } from "../components/ui/item";
-import { canGoBack } from "../navigation";
-import type { Snapshot, Status } from "../types";
+import { snapshotWords } from "../snapshot";
+import type { Snapshot, Status, UnstudiedPreference, Word } from "../types";
 import { wordPath } from "../wordPath";
 
 const WordPage = lazy(() => import("./WordPage"));
+const WordReadings = lazy(() =>
+    import("./WordPage").then(({ WordReadings }) => ({ default: WordReadings })),
+);
 
 export function WordRoute({
   snapshot,
   status,
   similar,
   onSync,
-}: {
+                            ...preference
+                          }: UnstudiedPreference & {
   snapshot: Snapshot | null;
   status: Status | null;
   similar: Record<string, string[]>;
@@ -36,13 +35,17 @@ export function WordRoute({
       .replace(/[ァ-ヶ]/g, (char) =>
         String.fromCharCode(char.charCodeAt(0) - 96),
       ) || "";
-  const matches =
-    snapshot?.words.filter(
-      (word) =>
-        word.spelling === normalizedSpelling &&
-        (!normalizedReading || word.reading === normalizedReading),
-    ) ?? [];
-  const word = matches.length === 1 ? matches[0] : undefined;
+  const matchesQuery = (word: Word) =>
+      word.spelling === normalizedSpelling &&
+      (!normalizedReading || word.reading === normalizedReading);
+  const allLists = snapshot && snapshotWords(snapshot, true);
+  const visibleLists = snapshot && snapshotWords(snapshot, preference.showUnstudied);
+  const matches = allLists?.words.filter(matchesQuery) ?? [];
+  const visibleMatches =
+      visibleLists === allLists ? matches : visibleLists?.words.filter(matchesQuery) ?? [];
+  const word = matches.length === 1
+      ? (visibleMatches[0] ?? matches[0])
+      : undefined;
 
   useEffect(() => {
     if (!normalizedSpelling) {
@@ -88,60 +91,26 @@ export function WordRoute({
 
   if (!normalizedSpelling) return null;
   if (snapshot) {
-    if (matches.length <= 1)
-      return (
-        <Suspense fallback={<LoadingScreen />}>
-          <WordPage
-            key={location.key}
-            snapshot={snapshot}
-            word={word}
-            config={status?.config || null}
-            hasAnkiSession={Boolean(status?.hasAnkiSession)}
-            similar={similar}
-            onSync={onSync}
-          />
-        </Suspense>
-      );
+    const header = {
+      ...preference,
+      snapshot,
+      config: status?.config ?? null,
+      hasAnkiSession: Boolean(status?.hasAnkiSession),
+      onSync,
+    };
     return (
-      <main className="screen active">
-        <Card className="setup-window gap-0 py-0">
-          <CardHeader className="setup-header">
-            <Button
-              variant="ghost"
-              size="icon-lg"
-              type="button"
-              aria-label="Back"
-              disabled={!canGoBack()}
-              onClick={() => navigate(-1)}
-            >
-              <ArrowLeftIcon className="size-5" aria-hidden="true" />
-            </Button>
-            <h1>Choose a reading</h1>
-          </CardHeader>
-          <CardContent className="setup-content">
-            <ItemGroup
-              role="group"
-              aria-label="Available readings"
-              className="gap-2"
-            >
-              {matches.map((word) => (
-                <Item asChild key={word.wordId} variant="outline">
-                  <Link
-                    to={wordPath(word)}
-                    replace
-                    className="text-foreground no-underline"
-                  >
-                    <ItemContent>
-                      <ItemTitle>{word.spelling}</ItemTitle>
-                    </ItemContent>
-                    <Badge variant="secondary">{word.reading}</Badge>
-                  </Link>
-                </Item>
-              ))}
-            </ItemGroup>
-          </CardContent>
-        </Card>
-      </main>
+        <Suspense fallback={<LoadingScreen/>}>
+          {matches.length > 1 ? (
+              <WordReadings {...header} readings={visibleMatches}/>
+          ) : (
+          <WordPage
+              {...header}
+            key={location.key}
+            word={word}
+            similar={similar}
+          />
+          )}
+        </Suspense>
     );
   }
   return null;

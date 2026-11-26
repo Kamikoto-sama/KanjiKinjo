@@ -1,5 +1,5 @@
 import { SearchIcon } from "lucide-react";
-import { useMemo, useRef, useState, type Ref, type RefObject } from "react";
+import { type Ref, type RefObject, useMemo, useRef, useState } from "react";
 import type { Word } from "../types";
 import { wordPath } from "../wordPath";
 import { RecordRow } from "./RecordRow";
@@ -11,10 +11,12 @@ const pageSize = 50;
 
 export function WordSearch({
   words,
+                               showingUnstudied,
   savedQuery,
   inputRef,
 }: {
   words: Word[];
+    showingUnstudied: boolean;
   inputRef: Ref<HTMLInputElement>;
   savedQuery: RefObject<string>;
 }) {
@@ -22,6 +24,7 @@ export function WordSearch({
   const [limit, setLimit] = useState(pageSize);
   const results = useRef<HTMLDivElement>(null);
   const spelling = query.trim().normalize("NFC");
+    const emptyDeck = showingUnstudied ? "No words in this deck." : "No studied words in this deck.";
   const matches = useMemo(() => {
     if (!spelling) return [];
     const exact: Word[] = [];
@@ -71,7 +74,7 @@ export function WordSearch({
         <div className="mx-auto grid w-full max-w-2xl gap-3 px-4 pb-5">
           <p className="m-0 text-sm text-muted-foreground" role="status">
             {!words.length
-              ? "No studied words in this deck."
+                ? emptyDeck
               : spelling &&
                 (matches.length
                   ? `${matches.length} ${matches.length === 1 ? "result" : "results"}`

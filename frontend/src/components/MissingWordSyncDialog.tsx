@@ -1,14 +1,8 @@
-import { useState, type RefObject } from "react";
+import { type RefObject, useState } from "react";
 import type { SyncResult } from "../api";
 import { FormError } from "./FormError";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle, } from "./ui/dialog";
 import { useDialogFocus } from "./useDialogFocus";
 
 export function MissingWordSyncDialog({
@@ -67,7 +61,7 @@ export function MissingWordSyncDialog({
             </>
           )}
           {
-            " was not found among the studied words in this deck. The deck may be out of date. Sync the deck?"
+              " was not found in this deck. The deck may be out of date. Sync the deck?"
           }
         </DialogDescription>
         {error && <FormError message={error} />}

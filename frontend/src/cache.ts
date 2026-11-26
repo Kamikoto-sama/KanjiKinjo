@@ -1,13 +1,6 @@
 import Dexie, { type Table } from "dexie";
 import type { DictionaryManifest } from "./api";
-import type {
-  AnkiAuth,
-  CollectionData,
-  Config,
-  Correction,
-  Snapshot,
-  Status,
-} from "./types";
+import type { AnkiAuth, CollectionData, Config, Correction, Snapshot, Status, } from "./types";
 
 type StoredValue = { key: string; value: unknown };
 export type DictionaryWord = {
@@ -66,11 +59,19 @@ function statusFor(
 export function readStartup() {
   return cache.transaction("r", cache.values, async () => {
     const [rows, hasCollection, dictionary] = await Promise.all([
-      cache.values.bulkGet(["auth", "config", "snapshot", "collectionVersion"]),
+        cache.values.bulkGet([
+            "auth",
+            "config",
+            "snapshot",
+            "collectionVersion",
+            "showUnstudiedWords",
+            "hasUnstudiedData",
+        ]),
       cache.values.where(":id").equals("collection").count(),
       readDictionary(),
     ]);
-    const [auth, config, storedSnapshot, version] = rows;
+      const [auth, config, storedSnapshot, version, showUnstudied, hasUnstudiedData] =
+          rows;
     const snapshot = value<Snapshot>(storedSnapshot);
     return {
       status: statusFor(
@@ -80,10 +81,21 @@ export function readStartup() {
         snapshot,
       ),
       snapshot,
+        showUnstudied: value<boolean>(showUnstudied) === true,
+        hasUnstudiedData:
+            value<boolean>(hasUnstudiedData) ?? Boolean(snapshot?.includingUnstudied),
       collectionId: (value<CollectionVersion>(version) ?? legacyVersion).id,
       dictionary,
     };
   });
+}
+
+export async function readShowUnstudiedWords() {
+    return value<boolean>(await cache.values.get("showUnstudiedWords")) === true;
+}
+
+export async function saveShowUnstudiedWords(show: boolean) {
+    await cache.values.put({ key: "showUnstudiedWords", value: show });
 }
 
 export async function cachedSnapshot(): Promise<Snapshot | null> {
@@ -180,6 +192,7 @@ export async function replaceCollection(
     ]);
     await cache.values.bulkPut([
       { key: "collection", value: collection },
+        { key: "hasUnstudiedData", value: Boolean(collection.unstudiedNotes) },
       { key: "collectionVersion", value: version },
       ...(auth ? [{ key: "auth", value: auth }] : []),
     ]);
@@ -195,10 +208,13 @@ export function saveSyncedCollection(
   auth: AnkiAuth,
   snapshot: Snapshot | null,
   source: SourceVersion,
-): Promise<{ previousSnapshot: Snapshot | null } | null> {
+) {
   return cache.transaction("rw", cache.values, async () => {
     if (!sameSnapshotInputs(await readSourceVersion(), source)) return null;
-    const previousSnapshot = await cachedSnapshot();
+      const [previousSnapshot, showUnstudied] = await Promise.all([
+          cachedSnapshot(),
+          readShowUnstudiedWords(),
+      ]);
     const version: CollectionVersion = {
       id: source.id,
       content: source.content + 1,
@@ -206,11 +222,12 @@ export function saveSyncedCollection(
     };
     await cache.values.bulkPut([
       { key: "collection", value: collection },
+        { key: "hasUnstudiedData", value: Boolean(collection.unstudiedNotes) },
       { key: "auth", value: auth },
       { key: "collectionVersion", value: version },
       ...(snapshot ? [{ key: "snapshot", value: snapshot }] : []),
     ]);
-    return { previousSnapshot };
+      return { previousSnapshot, showUnstudied };
   });
 }
 

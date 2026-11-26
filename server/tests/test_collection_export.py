@@ -10,7 +10,7 @@ from server.importer import import_package
 
 
 class CollectionExportTests(unittest.TestCase):
-    def test_exports_only_reviewed_notes_in_their_current_decks(self):
+    def test_exports_reviewed_and_unreviewed_notes_in_their_current_decks(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "collection.anki2"
             connection = sqlite3.connect(path)
@@ -28,7 +28,9 @@ class CollectionExportTests(unittest.TestCase):
                 (10, 3, "転勤\x1ftransfer"),
                 (11, 3, "工場\x1ffactory"),
             ])
-            connection.executemany("INSERT INTO cards VALUES (?, ?, ?)", [(20, 10, 1), (21, 11, 2)])
+            connection.executemany("INSERT INTO cards VALUES (?, ?, ?)", [
+                (20, 10, 1), (21, 11, 2), (22, 10, 1), (23, 10, 2),
+            ])
             connection.executemany("INSERT INTO revlog VALUES (?, ?)", [(20, 1), (21, 4)])
             connection.commit()
             connection.close()
@@ -44,7 +46,12 @@ class CollectionExportTests(unittest.TestCase):
             "id": "10", "modelId": 3, "fields": ["転勤", "transfer"]
         }])
         self.assertEqual(result["studiedNotes"]["2"], [])
-        self.assertEqual(result["noteTypes"]["2"][0]["count"], 1)
+        self.assertEqual(result["unstudiedNotes"]["1"], [])
+        self.assertEqual(result["unstudiedNotes"]["2"], [
+            {"id": "10", "modelId": 3, "fields": ["転勤", "transfer"]},
+            {"id": "11", "modelId": 3, "fields": ["工場", "factory"]},
+        ])
+        self.assertEqual(result["noteTypes"]["2"][0]["count"], 2)
         self.assertEqual(imported, result)
 
 

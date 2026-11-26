@@ -16,6 +16,7 @@ export function SetupMappingForm({
   selectedType,
   setSelectedType,
   preview,
+                                     hasHiddenWords,
   busy,
   change,
   changeStatus,
@@ -27,6 +28,7 @@ export function SetupMappingForm({
   selectedType: number;
   setSelectedType: (index: number) => void;
   preview: Preview | null;
+    hasHiddenWords: boolean;
   busy: boolean;
   change: (field: keyof Mapping, value: string) => void;
   changeStatus: (status: Mapping["status"]) => void;
@@ -210,6 +212,7 @@ export function SetupMappingForm({
                     <RecordPreview
                       key={current.id}
                       words={preview.wordsByType[String(current.id)] || []}
+                      hasHiddenWords={hasHiddenWords}
                     />
                   ) : (
                     <p

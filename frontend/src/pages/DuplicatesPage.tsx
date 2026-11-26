@@ -13,9 +13,9 @@ import { goBack } from "../navigation";
 import { readSetupDraft } from "../setupDraft";
 import type { Config, DuplicateGroup } from "../types";
 
-type Props = { initialConfig: Config | null; snapshotVersion?: string };
+type Props = { initialConfig: Config | null; snapshotVersion?: string; showUnstudied: boolean };
 
-export function DuplicatesPage({ initialConfig, snapshotVersion }: Props) {
+export function DuplicatesPage({ initialConfig, snapshotVersion, showUnstudied }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const noteTypeId =
@@ -33,7 +33,7 @@ export function DuplicatesPage({ initialConfig, snapshotVersion }: Props) {
     setPreviewGroups(null);
     setError("");
     api
-      .preview(config)
+        .preview(config, showUnstudied)
       .then((preview) => {
         if (active) setPreviewGroups(preview.duplicateGroups);
       })
@@ -48,7 +48,7 @@ export function DuplicatesPage({ initialConfig, snapshotVersion }: Props) {
     return () => {
       active = false;
     };
-  }, [config, snapshotVersion]);
+  }, [config, snapshotVersion, showUnstudied]);
 
   const visibleGroups = previewGroups?.filter(
     ({ records }) =>

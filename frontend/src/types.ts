@@ -8,17 +8,22 @@ export type Word = {
   translations: string[];
   ruby: RubyPart[] | null;
   match: "dictionary" | "custom" | "needsRuby";
+  unstudied?: true;
 };
 
-export type Snapshot = {
+export type SnapshotWords = {
+  words: Word[];
+  unresolved: UnresolvedWord[];
+  duplicateGroups?: DuplicateGroup[];
+};
+
+export type Snapshot = SnapshotWords & {
   schemaVersion: number;
   snapshotVersion: string;
   datasetVersion: string;
   deck: { id: number; name: string; includeChildren: boolean };
   syncedAt: string;
-  words: Word[];
-  unresolved: UnresolvedWord[];
-  duplicateGroups?: DuplicateGroup[];
+  includingUnstudied?: SnapshotWords;
 };
 
 export type UnresolvedWord = {
@@ -27,6 +32,7 @@ export type UnresolvedWord = {
   spelling: string;
   reading?: string;
   reason: string;
+  unstudied?: true;
 };
 
 export type DuplicateRecord = Omit<Word, "wordId" | "noteIds"> & {
@@ -66,11 +72,17 @@ export type NoteType = {
   count: number;
   samples: Record<string, string>[];
 };
-export type StudiedNote = { id: string; modelId: number; fields: string[] };
+export type CollectionNote = { id: string; modelId: number; fields: string[] };
+export type UnstudiedPreference = {
+  showUnstudied: boolean;
+  savingUnstudiedPreference: boolean;
+  onShowUnstudiedChange: (show: boolean) => void;
+};
 export type CollectionData = {
   decks: Deck[];
   noteTypes: Record<string, NoteType[]>;
-  studiedNotes: Record<string, StudiedNote[]>;
+  studiedNotes: Record<string, CollectionNote[]>;
+  unstudiedNotes?: Record<string, CollectionNote[]>;
 };
 export type AnkiAuth = { hkey: string; endpoint: string; email: string };
 export type Correction = { spelling: string; reading: string; ruby: string };

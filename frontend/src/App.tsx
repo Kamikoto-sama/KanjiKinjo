@@ -1,11 +1,21 @@
+import { liveQuery } from "dexie";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate, } from "react-router-dom";
+import { toast } from "sonner";
 import { api, type SyncResult, waitForJob } from "./api";
-import { cache, type CachedDictionary, readStartup, replaceCollection, } from "./cache";
+import {
+  cache,
+  type CachedDictionary,
+  readShowUnstudiedWords,
+  readStartup,
+  replaceCollection,
+  saveShowUnstudiedWords,
+} from "./cache";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { SyncResultsDialog } from "./components/SyncResultsDialog";
 import { Empty, EmptyHeader, EmptyTitle } from "./components/ui/empty";
 import { Button } from "./components/ui/button";
+import { Toaster } from "./components/ui/sonner";
 import { LoginPage } from "./pages/LoginPage";
 import { ImportPage } from "./pages/ImportPage";
 import { CorrectionsPage } from "./pages/CorrectionsPage";
@@ -23,6 +33,10 @@ function Application() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [collectionId, setCollectionId] = useState<string | null>(null);
+  const [hasUnstudiedData, setHasUnstudiedData] = useState(false);
+  const [showUnstudied, setShowUnstudied] = useState(false);
+  const [savingUnstudiedPreference, setSavingUnstudiedPreference] =
+      useState(false);
   const [startup, setStartup] = useState<"loading" | "error" | "ready">(
     "loading",
   );
@@ -61,6 +75,7 @@ function Application() {
     sessionStorage.removeItem("setupDraft");
     setCollectionId(next.collectionId);
     setStatus(next.status);
+    setHasUnstudiedData(Boolean(collection.unstudiedNotes));
     setSnapshot(null);
     setSyncIssues(null);
     navigate("/dictionaries");
@@ -84,6 +99,7 @@ function Application() {
         if (!stillCurrent() || (shouldApply && !shouldApply())) return null;
         const result = await api.applySync(downloaded, source);
         if (!result || !stillCurrent()) return null;
+        setHasUnstudiedData(Boolean(downloaded.collection.unstudiedNotes));
         if (result.snapshot) setSnapshot(result.snapshot);
         if (result.newUnresolved.length || result.newDuplicates.length) {
           setSyncIssues({
@@ -117,6 +133,8 @@ function Application() {
         setStatus(current.status);
         setSnapshot(current.snapshot);
         setCollectionId(current.collectionId);
+        setHasUnstudiedData(current.hasUnstudiedData);
+        setShowUnstudied(current.showUnstudied);
         setDictionary(current.dictionary);
         setStartup("ready");
       } catch {
@@ -128,6 +146,27 @@ function Application() {
       active = false;
     };
   }, [startupAttempt]);
+
+  useEffect(() => {
+    if (startup !== "ready") return;
+    const subscription = liveQuery(readShowUnstudiedWords).subscribe({
+      next: setShowUnstudied,
+      error: () => toast.error("Could not read the word display setting"),
+    });
+    return () => subscription.unsubscribe();
+  }, [startup]);
+
+  async function changeShowUnstudied(show: boolean) {
+    setSavingUnstudiedPreference(true);
+    try {
+      await saveShowUnstudiedWords(show);
+      setShowUnstudied(show);
+    } catch {
+      toast.error("Could not save the word display setting");
+    } finally {
+      setSavingUnstudiedPreference(false);
+    }
+  }
 
   useEffect(() => {
     const needsSync =
@@ -176,6 +215,14 @@ function Application() {
     );
   }
 
+  const unstudiedPreference = {
+    showUnstudied,
+    savingUnstudiedPreference,
+    onShowUnstudiedChange: changeShowUnstudied,
+  };
+  const hasAnkiSession = Boolean(status?.hasAnkiSession);
+  const syncFromPage = (returnFocus?: HTMLElement) =>
+      syncDeck(undefined, returnFocus);
   return (
     <>
       <Routes>
@@ -229,12 +276,13 @@ function Application() {
               snapshot ? (
                 <Suspense fallback={<LoadingScreen />}>
                   <SearchPage
+                      {...unstudiedPreference}
                     key={collectionId ?? "legacy"}
                     snapshot={snapshot}
                     savedQuery={savedSearch}
                     config={status?.config || null}
-                    hasAnkiSession={Boolean(status?.hasAnkiSession)}
-                    onSync={(returnFocus) => syncDeck(undefined, returnFocus)}
+                      hasAnkiSession={hasAnkiSession}
+                      onSync={syncFromPage}
                   />
                 </Suspense>
               ) : (
@@ -250,9 +298,13 @@ function Application() {
             element={
               hasCollection ? (
                 <SetupPage
+                    {...unstudiedPreference}
                   key={collectionId ?? "legacy"}
                   initialConfig={status?.config || null}
                   snapshotVersion={snapshot?.snapshotVersion}
+                    hasUnstudiedData={hasUnstudiedData}
+                    hasAnkiSession={hasAnkiSession}
+                    onSync={syncFromPage}
                   onReady={(next, config) => {
                     setSnapshot(next);
                     setStatus(
@@ -278,6 +330,7 @@ function Application() {
                 <DuplicatesPage
                   initialConfig={status.config}
                   snapshotVersion={snapshot?.snapshotVersion}
+                  showUnstudied={showUnstudied}
                 />
               ) : (
                 <Navigate to="/import" replace />
@@ -290,6 +343,8 @@ function Application() {
               status?.hasCollection ? (
                 <CorrectionsPage
                   initialConfig={status.config}
+                  snapshotVersion={snapshot?.snapshotVersion}
+                  showUnstudied={showUnstudied}
                   onSnapshot={setSnapshot}
                 />
               ) : (
@@ -301,10 +356,11 @@ function Application() {
             path="/word"
             element={
               <WordRoute
+                  {...unstudiedPreference}
                 snapshot={snapshot}
                 status={status}
                 similar={dictionary.similar}
-                onSync={(returnFocus) => syncDeck(undefined, returnFocus)}
+                  onSync={syncFromPage}
               />
             }
           />
@@ -320,6 +376,7 @@ function Application() {
           }}
         />
       )}
+      <Toaster closeButton/>
     </>
   );
 }

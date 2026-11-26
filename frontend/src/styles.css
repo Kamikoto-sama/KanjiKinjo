@@ -285,6 +285,12 @@ rt {
 .word-row-word rt {
   font-size: 0.48em;
 }
+
+[data-unstudied],
+[data-unstudied] rt,
+[data-unstudied] .selected-word button {
+    color: var(--muted-foreground);
+}
 .word-row-word .kanji-highlight {
   font-weight: 700;
   -webkit-text-stroke: 0.55px currentColor;

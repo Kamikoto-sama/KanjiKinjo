@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
-import { test } from "@playwright/test";
-import { webcrypto } from "node:crypto";
+import {test} from "@playwright/test";
+import {webcrypto} from "node:crypto";
 import {
-  buildSnapshot,
-  collectionNoteTypes,
-  newDuplicateRecords,
-  prepareSnapshot,
-  readingFromRuby,
-  rubyFromAnnotation,
+    buildSnapshot,
+    collectionNoteTypes,
+    newDuplicateRecords,
+    prepareSnapshot,
+    readingFromRuby,
+    rubyFromAnnotation,
 } from "../src/snapshot.ts";
 
 globalThis.crypto ||= webcrypto;
@@ -68,6 +68,44 @@ test("client builds a deduplicated studied-word snapshot with subdecks", async (
   assert.deepEqual(result.words[0].translations, ["job transfer", "transfer"]);
   assert.deepEqual(result.unresolved, []);
   assert.equal(collectionNoteTypes(collection, 1, true)[0].count, 2);
+});
+
+test("full and studied views share word identity and classify notes within the selected decks", async () => {
+    const shared = {
+        id: "12", modelId: 3, fields: ["工場", "工[こう]場[じょう]", "factory"],
+    };
+    const fresh = {
+        id: "13", modelId: 3, fields: ["工事", "工[こう]事[じ]", "construction"],
+    };
+    const duplicate = {
+        id: "14", modelId: 3, fields: ["転勤", "転勤[てんきん]", "relocation"],
+    };
+    const unresolved = {
+        id: "15", modelId: 3, fields: ["会社", "", "company"],
+    };
+    const mixed = {
+        ...collection,
+        studiedNotes: {...collection.studiedNotes, "2": [...collection.studiedNotes["2"], shared]},
+        unstudiedNotes: {"1": [shared, duplicate, unresolved], "2": [fresh]},
+    };
+
+    const {snapshot, preview, previewIncludingUnstudied} = await prepareSnapshot(mixed, config, {}, "test", lookup);
+    const transfer = snapshot.words.find((word) => word.wordId === "dictionary-id");
+    const fullTransfer = snapshot.includingUnstudied.words.find((word) => word.wordId === transfer.wordId);
+    assert.deepEqual(transfer.translations, ["job transfer", "transfer"]);
+    assert.deepEqual(fullTransfer.translations, ["job transfer", "transfer", "relocation"]);
+    assert.equal(fullTransfer.unstudied, undefined);
+    assert.deepEqual(fullTransfer.ruby, transfer.ruby);
+    assert.deepEqual(snapshot.includingUnstudied.words.find((word) => word.spelling === "工場").noteIds, ["12"]);
+    assert.deepEqual(snapshot.includingUnstudied.words.filter((word) => word.unstudied).map((word) => word.spelling), ["工事"]);
+    assert.deepEqual(preview.unresolved, []);
+    assert.deepEqual(previewIncludingUnstudied.unresolved.map((word) => [word.noteId, word.unstudied]), [["15", true]]);
+    assert.equal(preview.duplicateGroups[0].records.length, 2);
+    assert.equal(previewIncludingUnstudied.duplicateGroups[0].records[2].unstudied, true);
+
+    const parentOnly = await buildSnapshot(mixed, {...config, includeChildren: false}, {}, "test", lookup);
+    assert.equal(parentOnly.words.some((word) => word.spelling === "工場"), false);
+    assert.equal(parentOnly.includingUnstudied.words.find((word) => word.spelling === "工場").unstudied, true);
 });
 
 test("preview preserves the original records in each duplicate group across card types", async () => {

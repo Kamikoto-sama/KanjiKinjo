@@ -1,11 +1,6 @@
 import { Badge } from "../components/ui/badge";
 import { Empty, EmptyHeader, EmptyTitle } from "../components/ui/empty";
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "../components/ui/field";
+import { Field, FieldDescription, FieldGroup, FieldLabel, } from "../components/ui/field";
 import { Item, ItemGroup } from "../components/ui/item";
 import { Separator } from "../components/ui/separator";
 import { Spinner } from "../components/ui/spinner";
@@ -13,27 +8,35 @@ import { Card, CardContent, CardHeader } from "../components/ui/card";
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, type PreparedSetup, setupPreview } from "../api";
 import { FormError } from "../components/FormError";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { goBack } from "../navigation";
 import { readSetupDraft } from "../setupDraft";
-import type { Config, Preview, Snapshot, UnresolvedWord } from "../types";
+import type { Config, Snapshot, UnresolvedWord } from "../types";
 
 type Props = {
   initialConfig: Config | null;
+    snapshotVersion?: string;
+    showUnstudied: boolean;
   onSnapshot: (snapshot: Snapshot) => void;
 };
 
-export function CorrectionsPage({ initialConfig, onSnapshot }: Props) {
+export function CorrectionsPage({
+                                    initialConfig,
+                                    snapshotVersion,
+                                    showUnstudied,
+                                    onSnapshot,
+                                }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const noteTypeId =
     Number(new URLSearchParams(location.search).get("type")) || null;
   const [draft] = useState(readSetupDraft);
   const config = draft || initialConfig;
-  const [preview, setPreview] = useState<Preview | null>(null);
+    const [prepared, setPrepared] = useState<PreparedSetup | null>(null);
+    const preview = prepared && setupPreview(prepared, showUnstudied);
   const [selected, setSelected] = useState("");
   const [spelling, setSpelling] = useState("");
   const [reading, setReading] = useState("");
@@ -57,15 +60,11 @@ export function CorrectionsPage({ initialConfig, onSnapshot }: Props) {
   useEffect(() => {
     if (!config) return;
     let active = true;
+      setPrepared(null);
     api
-      .preview(config)
+        .prepareSetup(config)
       .then((next) => {
-        if (!active) return;
-        setPreview(next);
-        const first = next.unresolved.find(
-          (item) => noteTypeId === null || item.noteTypeId === noteTypeId,
-        );
-        if (first) select(first);
+          if (active) setPrepared(next);
       })
       .catch((reason) => {
         if (active) setError(reason.message);
@@ -73,7 +72,11 @@ export function CorrectionsPage({ initialConfig, onSnapshot }: Props) {
     return () => {
       active = false;
     };
-  }, [config, noteTypeId, location.key]);
+  }, [config, location.key, snapshotVersion]);
+
+    useEffect(() => {
+        if (active && active.noteId !== selected) select(active);
+    }, [active, selected]);
 
   async function save() {
     if (!active || !config) return;
@@ -81,13 +84,8 @@ export function CorrectionsPage({ initialConfig, onSnapshot }: Props) {
     setError("");
     try {
       await api.saveCorrection(active.noteId, spelling, reading, ruby);
-      const next = await api.preview(config);
-      setPreview(next);
-      const first = next.unresolved.find(
-        (item) => noteTypeId === null || item.noteTypeId === noteTypeId,
-      );
-      if (first) select(first);
-      else setSelected("");
+        setPrepared(await api.prepareSetup(config));
+        setSelected("");
       try {
         const snapshot = await api.snapshot();
         onSnapshot(snapshot);
@@ -134,7 +132,7 @@ export function CorrectionsPage({ initialConfig, onSnapshot }: Props) {
             <Empty>
               <EmptyHeader>
                 <EmptyTitle>
-                  All studied words{" "}
+                    {showUnstudied ? "All words" : "All studied words"}{" "}
                   {noteTypeId === null ? "" : "in this card type "}are resolved.
                 </EmptyTitle>
               </EmptyHeader>
@@ -153,6 +151,7 @@ export function CorrectionsPage({ initialConfig, onSnapshot }: Props) {
                 {items.map((item) => (
                   <Item
                     asChild
+                    data-unstudied={item.unstudied}
                     key={item.noteId}
                     variant="outline"
                     size="sm"
@@ -165,6 +164,9 @@ export function CorrectionsPage({ initialConfig, onSnapshot }: Props) {
                       onClick={() => select(item)}
                     >
                       {item.spelling}
+                        {item.unstudied && (
+                            <Badge variant="secondary">Unstudied</Badge>
+                        )}
                       <Badge variant="secondary">
                         {item.reason === "needsRuby"
                           ? "Furigana needed"

@@ -19,6 +19,7 @@ import {
   collectionNoteTypes,
   newDuplicateRecords,
   prepareSnapshot,
+  snapshotWords,
   validateCorrection,
 } from "./snapshot";
 import type {
@@ -87,8 +88,16 @@ export type PreparedSetup = {
   source: SourceVersion;
   snapshot: Snapshot;
   preview: Preview;
+    previewIncludingUnstudied?: Preview;
   types: NoteType[];
 };
+
+export function setupPreview(
+    prepared: PreparedSetup,
+    showUnstudied: boolean,
+): Preview {
+    return (showUnstudied && prepared.previewIncludingUnstudied) || prepared.preview;
+}
 
 function requireCollection(state: SnapshotInputs): CollectionData {
   if (!state.collection) throw new Error("No Anki collection is available");
@@ -191,16 +200,19 @@ export const api = {
         state.version,
       );
       if (!saved) continue;
+        const previous =
+            saved.previousSnapshot && snapshotWords(saved.previousSnapshot, saved.showUnstudied);
+        const next = snapshot && snapshotWords(snapshot, saved.showUnstudied);
       const previousIds = new Set(
-        saved.previousSnapshot?.unresolved?.map((word) => word.noteId),
+          previous?.unresolved?.map((word) => word.noteId),
       );
       const newUnresolved =
-        snapshot?.unresolved.filter((word) => !previousIds.has(word.noteId)) ??
+          next?.unresolved.filter((word) => !previousIds.has(word.noteId)) ??
         [];
       return {
         snapshot,
         newUnresolved,
-        newDuplicates: newDuplicateRecords(saved.previousSnapshot, snapshot),
+          newDuplicates: newDuplicateRecords(previous, next),
       };
     }
     return null;
@@ -251,8 +263,8 @@ export const api = {
     );
     return { ...prepared, config, source: state.version, types };
   },
-  async preview(config: Config): Promise<Preview> {
-    return (await api.prepareSetup(config)).preview;
+    async preview(config: Config, showUnstudied = false): Promise<Preview> {
+        return setupPreview(await api.prepareSetup(config), showUnstudied);
   },
   async refreshSetup(prepared: PreparedSetup): Promise<PreparedSetup> {
     const current = await readSourceVersion();
@@ -286,8 +298,10 @@ export const api = {
         throw new Error("The collection changed. Reopen word corrections.");
       const collection = requireCollection(state);
       if (
-        !Object.values(collection.studiedNotes).some((notes) =>
-          notes.some((note) => note.id === noteId),
+          ![collection.studiedNotes, collection.unstudiedNotes].some((decks) =>
+              Object.values(decks ?? {}).some((notes) =>
+                  notes.some((note) => note.id === noteId),
+              ),
         )
       ) {
         throw new Error("Note not found");

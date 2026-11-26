@@ -1,34 +1,30 @@
 import { Field, FieldLabel } from "../components/ui/field";
 import { Spinner } from "../components/ui/spinner";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardFooter,
-} from "../components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader, } from "../components/ui/card";
 import { ArrowLeftIcon, ArrowRightIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, type SyncResult } from "../api";
 import { SetupMappingForm } from "../components/SetupMappingForm";
 import { useSetupPreview } from "../components/useSetupPreview";
 import { useSetupSave } from "../components/useSetupSave";
 import { FormError } from "../components/FormError";
 import { ReplaceDeckDialog } from "../components/ReplaceDeckDialog";
 import { SkipWordsDialog } from "../components/SkipWordsDialog";
+import { UnstudiedDataNotice } from "../components/WordNotices";
 import { Button } from "../components/ui/button";
-import {
-  NativeSelect,
-  NativeSelectOption,
-} from "../components/ui/native-select";
+import { NativeSelect, NativeSelectOption, } from "../components/ui/native-select";
 import { Switch } from "../components/ui/switch";
 import { goBack } from "../navigation";
 import { readSetupDraft } from "../setupDraft";
-import type { Config, Deck, Mapping, NoteType, Snapshot } from "../types";
+import type { Config, Deck, Mapping, NoteType, Snapshot, UnstudiedPreference, } from "../types";
 
-type Props = {
+type Props = UnstudiedPreference & {
   initialConfig: Config | null;
   snapshotVersion?: string;
+    hasUnstudiedData: boolean;
+    hasAnkiSession: boolean;
+    onSync: (returnFocus: HTMLElement) => Promise<SyncResult | null>;
   onReady: (snapshot: Snapshot, config: Config) => void;
 };
 
@@ -53,7 +49,17 @@ function savedDraft(initialConfig: Config | null, entryKey: string) {
     : null;
 }
 
-export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
+export function SetupPage({
+                              initialConfig,
+                              snapshotVersion,
+                              hasUnstudiedData,
+                              hasAnkiSession,
+                              onSync,
+                              onReady,
+                              showUnstudied,
+                              savingUnstudiedPreference,
+                              onShowUnstudiedChange,
+                          }: Props) {
   const location = useLocation();
   const navigate = useNavigate();
   const [draft] = useState(() => savedDraft(initialConfig, location.key));
@@ -79,10 +85,11 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
   );
   const {
     preview,
+      previewIncludingUnstudied,
     error: previewError,
     getPrepared,
     showPrepared,
-  } = useSetupPreview(config, snapshotVersion);
+  } = useSetupPreview(config, showUnstudied, hasUnstudiedData, snapshotVersion);
   const { busy, save, skipWarning, dismissSkip, confirmSkip } = useSetupSave({
     getPrepared,
     showPrepared,
@@ -91,11 +98,19 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
   });
 
   useEffect(() => {
+      let active = true;
     api
       .decks()
-      .then(setDecks)
-      .catch((reason) => setError(reason.message));
-  }, []);
+        .then((items) => {
+            if (active) setDecks(items);
+        })
+        .catch((reason) => {
+            if (active) setError(reason.message);
+        });
+      return () => {
+          active = false;
+      };
+  }, [hasUnstudiedData, snapshotVersion]);
   useEffect(() => {
     sessionStorage.setItem(
       "setupDraft",
@@ -145,9 +160,12 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
     return () => {
       active = false;
     };
-  }, [deckId, includeChildren, snapshotVersion]);
+  }, [deckId, includeChildren, hasUnstudiedData, snapshotVersion]);
 
   const current = types[selectedType];
+    const hasHiddenWords = !showUnstudied && Boolean(
+        current && previewIncludingUnstudied?.wordsByType[String(current.id)]?.length,
+    );
   const mapping = current ? mappings[String(current.id)] : null;
   const ready = types.filter(
     (type) => mappings[String(type.id)]?.status !== "unconfigured",
@@ -270,6 +288,23 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
                 }}
               />
             </Field>
+              <Field orientation="horizontal" className="justify-between">
+                  <FieldLabel htmlFor="unstudied-words-toggle">
+                      Show unstudied words
+                  </FieldLabel>
+                  <Switch
+                      id="unstudied-words-toggle"
+                      checked={showUnstudied}
+                      disabled={busy || savingUnstudiedPreference}
+                      onCheckedChange={onShowUnstudiedChange}
+                  />
+              </Field>
+              {showUnstudied && !hasUnstudiedData && (
+                  <UnstudiedDataNotice
+                      hasAnkiSession={hasAnkiSession}
+                      onSync={onSync}
+                  />
+              )}
           </div>
           {deckId > 0 && types.length > 0 && (
             <SetupMappingForm
@@ -278,6 +313,7 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
               selectedType={selectedType}
               setSelectedType={setSelectedType}
               preview={preview}
+              hasHiddenWords={hasHiddenWords}
               busy={busy}
               change={change}
               changeStatus={changeStatus}
@@ -319,7 +355,7 @@ export function SetupPage({ initialConfig, snapshotVersion, onReady }: Props) {
       {pendingDeckId !== null && (
         <ReplaceDeckDialog
           returnFocus={deckTrigger.current}
-          description="Choosing a different deck will reset the field settings shown here. Your current studied deck will be replaced when you finish setup."
+          description="Choosing a different deck will reset the field settings shown here. Your current deck will be replaced when you finish setup."
           onCancel={() => setPendingDeckId(null)}
           onConfirm={() => {
             selectDeck(pendingDeckId);

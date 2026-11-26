@@ -1,10 +1,11 @@
 import { Link, type To } from "react-router-dom";
 import type { Word } from "../types";
 import { RubyText } from "./RubyText";
+import { Badge } from "./ui/badge";
 import { Item, ItemContent, ItemDescription, ItemTitle } from "./ui/item";
 
 type Props = {
-  word: Pick<Word, "spelling" | "ruby" | "translations">;
+    word: Pick<Word, "spelling" | "ruby" | "translations" | "unstudied">;
   selectedKanji?: string | null;
   visualMatch?: string;
   link?: { to: To; state?: { trail: string[] } };
@@ -17,6 +18,7 @@ export function RecordRow({ word, selectedKanji, visualMatch, link }: Props) {
         <RubyText word={word} selected={selectedKanji} />
       </ItemTitle>
       <div className="min-w-0 space-y-1 text-right wrap-anywhere">
+          {word.unstudied && <Badge variant="secondary">Unstudied</Badge>}
         {visualMatch && (
           <ItemDescription className="line-clamp-none text-wrap text-[var(--look)]">
             Similar kanji: {visualMatch}
@@ -34,13 +36,14 @@ export function RecordRow({ word, selectedKanji, visualMatch, link }: Props) {
       <Link
         to={link.to}
         state={link.state}
+        data-unstudied={word.unstudied}
         className="text-foreground no-underline"
       >
         {content}
       </Link>
     </Item>
   ) : (
-    <Item role="listitem" variant="outline">
+      <Item role="listitem" variant="outline" data-unstudied={word.unstudied}>
       {content}
     </Item>
   );

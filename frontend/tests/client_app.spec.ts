@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { expect, type Page, test } from "@playwright/test";
-import type { CollectionData, Config, Snapshot, StudiedNote, } from "../src/types";
+import type { CollectionData, CollectionNote, Config, Snapshot, } from "../src/types";
 
 const auth = { email: "study@example.test", hkey: "fixture", endpoint: "" };
 const config: Config = {
@@ -17,17 +17,17 @@ const config: Config = {
   },
 };
 
-const resolved: StudiedNote = {
+const resolved: CollectionNote = {
   id: "1",
   modelId: 3,
   fields: ["転勤", "転[てん]勤[きん]", "job transfer"],
 };
-const missing: StudiedNote = {
+const missing: CollectionNote = {
   id: "2",
   modelId: 3,
   fields: ["工場", "", "factory"],
 };
-const otherMissing: StudiedNote = {
+const otherMissing: CollectionNote = {
   id: "3",
   modelId: 3,
   fields: ["会社", "", "company"],
@@ -35,7 +35,7 @@ const otherMissing: StudiedNote = {
 
 function collection(
   name: string,
-  notes: StudiedNote[] = [resolved],
+  notes: CollectionNote[] = [resolved],
 ): CollectionData {
   return {
     decks: [{ id: 2, name }],
@@ -400,6 +400,174 @@ test("the home route opens search and syncs an older snapshot", async ({
   await expect(page).toHaveURL(/\/search$/);
   await expect(page.getByText("Updated deck", { exact: true })).toBeVisible();
   expect(jobs).toBe(1);
+});
+
+test("unstudied visibility follows both switches across word lists and works offline", async ({ page, context }) => {
+    const factory: CollectionNote = { id: "4", modelId: 3, fields: ["工場", "工[こう]場[じょう]", "factory"] };
+    const alternative: CollectionNote = { id: "5", modelId: 3, fields: ["工場", "工[こう]場[ば]", "workshop"] };
+    const duplicate: CollectionNote = {
+        id: "6",
+        modelId: 3,
+        fields: ["工場", "工場[こうじょう]", "manufacturing plant"]
+    };
+    const construction: CollectionNote = { id: "7", modelId: 3, fields: ["工事", "工[こう]事[じ]", "construction"] };
+    await seed(page, {
+        collection: {
+            ...collection("Mixed deck", [factory]),
+            unstudiedNotes: { "2": [alternative, duplicate, construction, otherMissing] },
+        },
+        hasUnstudiedData: true,
+        config,
+    });
+    await page.goto("/setup");
+    const preference = page.getByRole("switch", { name: "Show unstudied words" });
+    const preview = page.locator('[aria-label="Record preview"]');
+    await expect(preference).not.toBeChecked();
+    await expect(preview.getByText("factory", { exact: true })).toBeVisible();
+    await expect(preview.getByText("Unstudied", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Manage" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "View" })).toHaveCount(0);
+
+    await preference.click();
+    await expect(preference).toBeChecked();
+    await expect(preview.getByText("factory · manufacturing plant")).toBeVisible();
+    await expect(preview.getByText("Unstudied", { exact: true })).toHaveCount(2);
+
+    await page.getByRole("button", { name: "View" }).click();
+    await expect(page.getByRole("heading", { name: "Duplicate words" })).toBeVisible();
+    await expect(page.getByText("Unstudied", { exact: true })).toHaveCount(1);
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await page.getByRole("button", { name: "Manage" }).click();
+    await expect(page.getByRole("button", { name: /会社.*Unstudied/ })).toBeVisible();
+    await page.getByLabel("Furigana").fill("会[かい]社[しゃ]");
+    await page.getByRole("button", { name: "Save correction" }).click();
+    await expect(page.getByText("All words in this card type are resolved.")).toBeVisible();
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await expect(page).toHaveURL(/\/search$/);
+    await page.reload();
+
+    const search = page.getByRole("searchbox");
+    const menu = page.getByRole("button", { name: "Open menu" });
+    const menuPreference = page.getByRole("menuitemcheckbox", { name: "Show unstudied words" });
+    const results = page.getByRole("group", { name: "Search results" });
+    await search.fill("工場");
+    await expect(results.getByRole("link")).toHaveCount(2);
+    await expect(results.getByText("Unstudied", { exact: true })).toBeVisible();
+    await menu.click();
+    await expect(menuPreference).toBeChecked();
+    const track = menuPreference.locator('[data-slot="dropdown-menu-switch-track"]');
+    await expect(track).toBeVisible();
+    const onColor = await track.evaluate((element) => getComputedStyle(element).backgroundColor);
+    await menuPreference.click();
+    await expect(menuPreference).not.toBeChecked();
+    await expect(track).not.toHaveCSS("background-color", onColor);
+    await expect(menu).toHaveAttribute("aria-expanded", "true");
+    await expect(results.getByRole("link")).toHaveCount(1);
+    await expect(results.getByText("factory", { exact: true })).toBeVisible();
+    await expect(results.getByText(/manufacturing plant/)).toHaveCount(0);
+
+    const constructionPath = `/word?${new URLSearchParams({ spelling: "工事", reading: "こうじ" })}`;
+    await page.goto(constructionPath);
+    await expect(page.locator(".word-hero").getByText("Unstudied", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: /factory/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: /workshop/ })).toHaveCount(0);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await context.setOffline(true);
+    await menu.click();
+    await menuPreference.press("Space");
+    await expect(menuPreference).toBeChecked();
+    await expect(page.getByRole("link", { name: /workshop/ }).getByText("Unstudied", { exact: true })).toBeVisible();
+    await menuPreference.press("Enter");
+    await expect(menuPreference).not.toBeChecked();
+    await expect(page.getByRole("link", { name: /workshop/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeFocused();
+    await expect(page).toHaveURL(constructionPath);
+    await context.setOffline(false);
+
+    await page.goto(`/word?${new URLSearchParams({ spelling: "工場" })}`);
+    const readings = page.getByRole("group", { name: "Available readings" });
+    await expect(readings.getByRole("link")).toHaveCount(1);
+    await menu.click();
+    await menuPreference.click();
+    await expect(readings.getByRole("link")).toHaveCount(2);
+    await expect(readings.getByRole("link", { name: /Unstudied.*こうば/ })).toBeVisible();
+});
+
+test("sync upgrades an older cached deck and refreshes the studied status after the first answer", async ({ page }) => {
+    const fresh: CollectionNote = { id: "4", modelId: 3, fields: ["工場", "工[こう]場[じょう]", "factory"] };
+    await seed(page, { auth, collection: collection("Cached deck"), config, snapshot: snapshot("Cached deck") });
+
+    let download: CollectionData = { ...collection("Cached deck"), unstudiedNotes: { "2": [fresh, missing] } };
+    await page.route("**/api/anki/sync", (route) => route.fulfill({ json: { jobId: "refresh" } }));
+    await page.route("**/api/jobs/refresh", (route) => route.fulfill({
+        json: {
+            status: "complete",
+            result: { auth, collection: download }
+        }
+    }));
+    await page.goto("/search");
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Show unstudied words" }).click();
+    const outdated = page.getByText("Sync the deck to show unstudied words.");
+    await expect(outdated).toBeVisible();
+    await page.keyboard.press("Escape");
+    const sync = page.getByRole("button", { name: "Sync", exact: true });
+    await sync.click();
+    await expect(outdated).toBeHidden();
+    const syncIssues = page.getByRole("dialog", { name: "Review synced words" });
+    await expect(syncIssues).toContainText(/1 new word/);
+    await syncIssues.getByRole("button", { name: "Close" }).click();
+
+    await page.getByRole("searchbox").fill("工場");
+    const results = page.getByRole("group", { name: "Search results" });
+    await expect(results.getByText("Unstudied", { exact: true })).toBeVisible();
+
+    download = { ...collection("Cached deck", [resolved, fresh]), unstudiedNotes: { "2": [missing, otherMissing] } };
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Show unstudied words" }).click();
+    await expect(results.getByRole("link")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await sync.click();
+    await expect(results.getByRole("link", { name: /factory/ })).toBeVisible();
+    await expect(results.getByText("Unstudied", { exact: true })).toHaveCount(0);
+    await expect(syncIssues).toHaveCount(0);
+});
+
+test("a legacy file import can be replaced without resetting the word display preference", async ({ page }) => {
+    const imported = {
+        ...collection("New deck"),
+        unstudiedNotes: {
+            "2": [{ ...missing, fields: ["工場", "工[こう]場[じょう]", "factory"] }],
+        },
+    };
+    await seed(page, {
+        collection: collection("Old deck"), config, snapshot: snapshot("Old deck"),
+    });
+    await page.route("**/api/anki/import", async (route) =>
+        route.fulfill({ json: { collection: imported } }),
+    );
+
+    await page.goto("/search");
+    await page.getByRole("button", { name: "Open menu" }).click();
+    await page.getByRole("menuitemcheckbox", { name: "Show unstudied words" }).click();
+    await expect(page.getByText("Re-import the deck to show unstudied words.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.getByRole("link", { name: "Re-import deck" }).click();
+    await page.getByRole("button", { name: "Choose file", exact: true }).click();
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("alertdialog").getByRole("button", { name: "Continue" }).click();
+    await (await chooser).setFiles({
+        name: "new-deck.apkg",
+        mimeType: "application/octet-stream",
+        buffer: Buffer.from("fixture"),
+    });
+    await page.getByRole("button", { name: "Continue to deck setup" }).click();
+    await expect(page.getByRole("switch", { name: "Show unstudied words" })).toBeChecked();
+    await page.getByLabel("Deck", { exact: true }).selectOption({ label: "New deck" });
+    await expect(page.locator('[aria-label="Record preview"]').getByText("Unstudied", { exact: true })).toBeVisible();
 });
 
 test("import in one tab invalidates a sync started in another tab", async ({

@@ -21,10 +21,11 @@ class NoteType:
 
 
 @dataclass(frozen=True)
-class StudiedNote:
+class CollectionNote:
     id: int
     model_id: int
     fields: list[str]
+    studied: bool
 
 
 class CollectionReader:
@@ -124,26 +125,38 @@ class CollectionReader:
                 break
         return (preferred + fallback)[:3]
 
-    def studied_notes(self, deck_id: int, include_children: bool) -> list[StudiedNote]:
-        ids = self.deck_ids(deck_id, include_children)
-        placeholders = ",".join("?" for _ in ids)
+    def notes(self, deck_id: int) -> list[CollectionNote]:
         rows = self.connection.execute(
-            f"SELECT DISTINCT n.id, n.mid, n.flds FROM notes n JOIN cards c ON c.nid = n.id WHERE c.did IN ({placeholders}) AND EXISTS (SELECT 1 FROM revlog r WHERE r.cid = c.id AND r.type IN (0, 1, 2, 3))",
-            ids,
-        ).fetchall()
+            """
+            SELECT n.id, n.mid, n.flds, deck_notes.studied
+            FROM (
+                SELECT c.nid, MAX(EXISTS (
+                    SELECT 1 FROM revlog r WHERE r.cid = c.id AND r.type IN (0, 1, 2, 3)
+                )) AS studied
+                FROM cards c
+                WHERE c.did = ?
+                GROUP BY c.nid
+            ) deck_notes
+            JOIN notes n ON n.id = deck_notes.nid
+            """,
+            (deck_id,),
+        )
         return [
-            StudiedNote(int(row["id"]), int(row["mid"]), row["flds"].split("\x1f"))
+            CollectionNote(
+                int(row["id"]), int(row["mid"]), row["flds"].split("\x1f"), bool(row["studied"])
+            )
             for row in rows
         ]
 
 
 def export_collection(path: Path) -> dict:
-    """Extract deck metadata and studied fields without retaining the collection."""
+    """Extract deck metadata and note fields without retaining the collection."""
     reader = CollectionReader(path)
     try:
         decks = [{"id": deck.id, "name": deck.name} for deck in reader.decks]
         note_types: dict[str, list[dict]] = {}
         studied_notes: dict[str, list[dict]] = {}
+        unstudied_notes: dict[str, list[dict]] = {}
         for deck in reader.decks:
             key = str(deck.id)
             types = reader.note_types(deck.id, False)
@@ -157,10 +170,18 @@ def export_collection(path: Path) -> dict:
                 }
                 for item in types
             ]
-            studied_notes[key] = [
-                {"id": str(note.id), "modelId": note.model_id, "fields": note.fields}
-                for note in reader.studied_notes(deck.id, False)
-            ]
-        return {"decks": decks, "noteTypes": note_types, "studiedNotes": studied_notes}
+            studied_notes[key] = []
+            unstudied_notes[key] = []
+            for note in reader.notes(deck.id):
+                notes = studied_notes if note.studied else unstudied_notes
+                notes[key].append(
+                    {"id": str(note.id), "modelId": note.model_id, "fields": note.fields}
+                )
+        return {
+            "decks": decks,
+            "noteTypes": note_types,
+            "studiedNotes": studied_notes,
+            "unstudiedNotes": unstudied_notes,
+        }
     finally:
         reader.close()

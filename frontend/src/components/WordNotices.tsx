@@ -1,4 +1,8 @@
 import { InfoIcon, TriangleAlertIcon } from "lucide-react";
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import { toast } from "sonner";
+import type { SyncResult } from "../api";
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
 
@@ -62,4 +66,55 @@ export function DuplicateWordsNotice({
 }: Props & { onView: () => void }) {
   const message = `${count} duplicate ${count === 1 ? "record" : "records"}${inCardType ? " in this card type" : ""} will be merged`;
   return <WordsNotice message={message} action="View" onAction={onView} />;
+}
+
+export function UnstudiedDataNotice({
+                                        hasAnkiSession,
+                                        onSync,
+                                    }: {
+    hasAnkiSession: boolean;
+    onSync?: (returnFocus: HTMLElement) => Promise<SyncResult | null>;
+}) {
+    const [busy, setBusy] = useState(false);
+
+    async function sync(trigger: HTMLButtonElement) {
+        setBusy(true);
+        try {
+            await onSync?.(trigger);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "Sync failed");
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <Alert>
+            <InfoIcon aria-hidden="true"/>
+            <AlertDescription className="import-notice-actions">
+        <span role="status">
+          {hasAnkiSession
+              ? "Sync the deck to show unstudied words."
+              : "Re-import the deck to show unstudied words."}
+        </span>
+                {hasAnkiSession ? (
+                    onSync && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={busy}
+                            onClick={(event) => void sync(event.currentTarget)}
+                        >
+                            {busy ? "Syncing…" : "Sync"}
+                        </Button>
+                    )
+                ) : (
+                    <Button asChild variant="outline" size="sm">
+                        <Link to="/import">Re-import deck</Link>
+                    </Button>
+                )}
+            </AlertDescription>
+        </Alert>
+    );
 }

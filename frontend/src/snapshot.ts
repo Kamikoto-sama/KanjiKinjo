@@ -1,4 +1,16 @@
-import type { CollectionData, Config, Correction, DuplicateGroup, DuplicateRecord, NoteType, Preview, RubyPart, Snapshot, StudiedNote, UnresolvedWord, Word } from "./types";
+import type {
+    CollectionData,
+    CollectionNote,
+    Config,
+    Correction,
+    DuplicateRecord,
+    NoteType,
+    Preview,
+    RubyPart,
+    Snapshot,
+    SnapshotWords,
+    Word
+} from "./types";
 
 type DictionaryLookup = (
   spelling: string,
@@ -89,11 +101,43 @@ export function collectionNoteTypes(collection: CollectionData, deckId: number, 
   return [...merged.values()];
 }
 
-function studiedNotes(collection: CollectionData, config: Config): StudiedNote[] {
-  const notes = new Map<string, StudiedNote>();
-  for (const id of deckIds(collection, config))
+function collectionNotes(collection: CollectionData, config: Config) {
+    const ids = deckIds(collection, config);
+    const notes = new Map<string, CollectionNote & { unstudied?: true }>();
+    // A review in any selected deck takes precedence for notes shared across decks.
+    for (const id of ids)
     for (const note of collection.studiedNotes[String(id)] || []) notes.set(note.id, note);
-  return [...notes.values()];
+    for (const id of ids)
+        for (const note of collection.unstudiedNotes?.[String(id)] || []) {
+            if (!notes.has(note.id)) notes.set(note.id, { ...note, unstudied: true });
+        }
+    return notes.values();
+}
+
+function appendWord(
+    lists: Required<SnapshotWords>,
+    wordId: string,
+    records: DuplicateRecord[],
+    otherLists?: Required<SnapshotWords>,
+) {
+    const { spelling, reading, ruby, match, unstudied } = records[0];
+    const word: Word = {
+        wordId, spelling, reading, ruby, match,
+        ...(unstudied && { unstudied }),
+        noteIds: records.map((record) => record.noteId),
+        translations: [...new Set(records.flatMap((record) => record.translations))],
+    };
+    lists.words.push(word);
+    otherLists?.words.push(word);
+    if (records.length > 1) {
+        const group = { wordId, records };
+        lists.duplicateGroups.push(group);
+        otherLists?.duplicateGroups.push(group);
+    }
+}
+
+export function snapshotWords(snapshot: Snapshot, showUnstudied: boolean): SnapshotWords {
+    return (showUnstudied && snapshot.includingUnstudied) || snapshot;
 }
 
 export async function buildSnapshot(
@@ -107,12 +151,20 @@ export async function buildSnapshot(
   if (!deck) throw new Error("Deck not found");
   const types = new Map(collectionNoteTypes(collection, config.deckId, config.includeChildren).map((item) => [item.id, item]));
   const recordsByWord = new Map<string, DuplicateRecord[]>();
-  const unresolved: UnresolvedWord[] = [];
+    const studied: Required<SnapshotWords> = { words: [], unresolved: [], duplicateGroups: [] };
+    const includingUnstudied: Required<SnapshotWords> | undefined = collection.unstudiedNotes && {
+        words: [], unresolved: [], duplicateGroups: [],
+    };
+    const unresolved = includingUnstudied?.unresolved ?? studied.unresolved;
   const dictionary = new Map<string, Awaited<ReturnType<DictionaryLookup>>>();
-  for (const note of studiedNotes(collection, config)) {
+    for (const note of collectionNotes(collection, config)) {
     const type = types.get(note.modelId);
     const mapping = config.mappings[String(note.modelId)];
     if (!type || mapping?.status !== "configured") continue;
+        const source = {
+            noteId: note.id,
+            noteTypeId: note.modelId, ...(note.unstudied && { unstudied: note.unstudied })
+        };
     const fields = Object.fromEntries(type.fields.map((name, index) => [name, note.fields[index] || ""]));
     const correction = corrections[note.id];
     const spelling = normalizeSpelling(correction?.spelling || fields[mapping.spelling] || "");
@@ -133,24 +185,25 @@ export async function buildSnapshot(
       : entries;
     if (!reading) {
       if (matches.length !== 1) {
-        unresolved.push({ noteId: note.id, noteTypeId: note.modelId, spelling,
+          unresolved.push({
+              ...source, spelling,
           reason: matches.length ? "ambiguousReading" : "missingReading" });
         continue;
       }
       reading = matches[0].reading;
     }
     if (!kana.test(reading)) {
-      unresolved.push({ noteId: note.id, noteTypeId: note.modelId, spelling, reason: "missingReading" });
+        unresolved.push({ ...source, spelling, reason: "missingReading" });
       continue;
     }
     const ruby = rubyFromAnnotation(correction?.ruby || "", spelling) || sourceRuby || matches[0]?.ruby || null;
     if (!ruby) {
-      unresolved.push({ noteId: note.id, noteTypeId: note.modelId, spelling, reading, reason: "needsRuby" });
+        unresolved.push({ ...source, spelling, reading, reason: "needsRuby" });
       continue;
     }
     const identity = matches[0]?.wordId || await wordId(spelling, reading);
     const record: DuplicateRecord = {
-      noteId: note.id, noteTypeId: note.modelId, spelling, reading, ruby,
+        ...source, spelling, reading, ruby,
       translations: translation ? [translation] : [],
       match: correction ? "custom" : matches.length ? "dictionary" : "custom",
     };
@@ -158,27 +211,27 @@ export async function buildSnapshot(
     if (records) records.push(record);
     else recordsByWord.set(identity, [record]);
   }
-  const words: Word[] = [];
-  const duplicateGroups: DuplicateGroup[] = [];
   const sortedGroups = [...recordsByWord].sort(([, [a]], [, [b]]) => a.spelling.localeCompare(b.spelling));
   for (const [wordId, records] of sortedGroups) {
-    const { spelling, reading, ruby, match } = records[0];
-    words.push({
-      wordId, spelling, reading, ruby, match,
-      noteIds: records.map((record) => record.noteId),
-      translations: [...new Set(records.flatMap((record) => record.translations))],
-    });
-    if (records.length > 1) duplicateGroups.push({ wordId, records });
+      const reviewed = records.filter((record) => !record.unstudied);
+      if (reviewed.length === records.length) {
+          appendWord(studied, wordId, records, includingUnstudied);
+      } else {
+          if (includingUnstudied) appendWord(includingUnstudied, wordId, records);
+          if (reviewed.length) appendWord(studied, wordId, reviewed);
+      }
   }
+    if (includingUnstudied) studied.unresolved = unresolved.filter((word) => !word.unstudied);
   return {
     schemaVersion: 1, snapshotVersion: crypto.randomUUID(), datasetVersion,
     deck: { id: deck.id, name: deck.name, includeChildren: config.includeChildren },
     syncedAt: new Date().toISOString(),
-    words, unresolved, duplicateGroups,
+      ...studied,
+      ...(includingUnstudied && { includingUnstudied }),
   };
 }
 
-export function newDuplicateRecords(previous: Snapshot | null, next: Snapshot | null): DuplicateRecord[] {
+export function newDuplicateRecords(previous: SnapshotWords | null, next: SnapshotWords | null): DuplicateRecord[] {
   const previousGroups = new Map(previous?.words
     .filter((word) => word.noteIds.length > 1)
     .map((word) => [word.wordId, new Set(word.noteIds)]));
@@ -194,7 +247,7 @@ export async function prepareSnapshot(
   corrections: Record<string, Correction>,
   datasetVersion: string,
   lookup: DictionaryLookup,
-): Promise<{ snapshot: Snapshot; preview: Preview }> {
+) {
   const snapshot = await buildSnapshot(
     collection,
     config,
@@ -202,29 +255,25 @@ export async function prepareSnapshot(
     datasetVersion,
     lookup,
   );
-  const noteTypes = new Map(
-    studiedNotes(collection, config).map((note) => [
-      note.id,
-      String(note.modelId),
-    ]),
-  );
-  const wordsByType: Record<string, Word[]> = Object.fromEntries(
-    collectionNoteTypes(collection, config.deckId, config.includeChildren).map(
-      (item) => [String(item.id), []],
-    ),
-  );
-  for (const word of snapshot.words)
-    for (const typeId of new Set(word.noteIds.map((id) => noteTypes.get(id)))) {
-      if (typeId && wordsByType[typeId] && wordsByType[typeId].length < 30)
-        wordsByType[typeId].push(word);
+    const noteTypes = new Map<string, string>();
+    for (const note of collectionNotes(collection, config)) noteTypes.set(note.id, String(note.modelId));
+    const types = collectionNoteTypes(collection, config.deckId, config.includeChildren);
+
+    function previewFor(lists: SnapshotWords): Preview {
+        const wordsByType: Record<string, Word[]> = Object.fromEntries(
+            types.map((item) => [String(item.id), []]),
+        );
+        for (const word of lists.words)
+            for (const typeId of new Set(word.noteIds.map((id) => noteTypes.get(id)))) {
+                if (typeId && wordsByType[typeId] && wordsByType[typeId].length < 30)
+                    wordsByType[typeId].push(word);
+            }
+        return { wordsByType, unresolved: lists.unresolved, duplicateGroups: lists.duplicateGroups ?? [] };
     }
   return {
     snapshot,
-    preview: {
-      wordsByType,
-      unresolved: snapshot.unresolved,
-      duplicateGroups: snapshot.duplicateGroups ?? [],
-    },
+      preview: previewFor(snapshot),
+      previewIncludingUnstudied: snapshot.includingUnstudied && previewFor(snapshot.includingUnstudied),
   };
 }
 
