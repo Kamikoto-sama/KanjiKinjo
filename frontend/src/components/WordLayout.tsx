@@ -7,20 +7,15 @@ import {
   SearchIcon,
   SlidersHorizontal,
 } from "lucide-react";
-import { useRef, useState, type ReactNode, type RefObject } from "react";
+import { type ReactNode, type RefObject, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { SyncResult } from "../api";
-import { goBack } from "../navigation";
+import { canGoBack } from "../navigation";
 import type { Config, Snapshot } from "../types";
 import { CardLinkTemplateDialog } from "./CardLinkTemplateDialog";
 import { Button } from "./ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, } from "./ui/dropdown-menu";
 import { Spinner } from "./ui/spinner";
 import { Toaster } from "./ui/sonner";
 
@@ -76,7 +71,8 @@ export function WordLayout({
             size="icon-lg"
             type="button"
             aria-label="Back"
-            onClick={() => goBack(navigate, searchInput ? "/setup" : "/search")}
+            disabled={!canGoBack()}
+            onClick={() => navigate(-1)}
           >
             <ArrowLeftIcon className="size-5" aria-hidden="true" />
           </Button>

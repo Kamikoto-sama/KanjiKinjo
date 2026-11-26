@@ -193,7 +193,6 @@ function Application() {
           element={
             <ImportPage
               status={status}
-              fallback={snapshot ? "/search" : "/login"}
               onReplace={changeCollection}
             />
           }

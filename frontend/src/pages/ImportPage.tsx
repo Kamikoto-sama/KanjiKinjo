@@ -1,12 +1,6 @@
 import { Separator } from "../components/ui/separator";
 import { Spinner } from "../components/ui/spinner";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardFooter,
-  CardDescription,
-} from "../components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, } from "../components/ui/card";
 import { ArrowLeftIcon } from "lucide-react";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -23,16 +17,15 @@ import {
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { useDialogFocus } from "../components/useDialogFocus";
-import { goBack } from "../navigation";
+import { canGoBack } from "../navigation";
 import type { CollectionData, Status } from "../types";
 
 type Props = {
   status: Status | null;
-  fallback: string;
   onReplace: (collection: CollectionData, auth: null) => Promise<void>;
 };
 
-export function ImportPage({ status, fallback, onReplace }: Props) {
+export function ImportPage({ status, onReplace }: Props) {
   const navigate = useNavigate();
   const upload = useRef<HTMLInputElement>(null);
   const chooseFile = useRef<HTMLButtonElement>(null);
@@ -91,7 +84,8 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
             size="icon-lg"
             type="button"
             aria-label="Back"
-            onClick={() => goBack(navigate, fallback)}
+            disabled={!canGoBack()}
+            onClick={() => navigate(-1)}
           >
             <ArrowLeftIcon className="size-5" aria-hidden="true" />
           </Button>

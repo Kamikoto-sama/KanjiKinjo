@@ -7,7 +7,7 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader } from "../components/ui/card";
 import { Item, ItemContent, ItemGroup, ItemTitle } from "../components/ui/item";
-import { goBack } from "../navigation";
+import { canGoBack } from "../navigation";
 import type { Snapshot, Status } from "../types";
 import { wordPath } from "../wordPath";
 
@@ -111,7 +111,8 @@ export function WordRoute({
               size="icon-lg"
               type="button"
               aria-label="Back"
-              onClick={() => goBack(navigate, "/search")}
+              disabled={!canGoBack()}
+              onClick={() => navigate(-1)}
             >
               <ArrowLeftIcon className="size-5" aria-hidden="true" />
             </Button>

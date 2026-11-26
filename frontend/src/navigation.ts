@@ -1,7 +1,11 @@
 import type { NavigateFunction } from "react-router-dom";
 
+export function canGoBack() {
+  const index = window.history.state?.idx;
+  return typeof index === "number" && index > 0;
+}
+
 export function goBack(navigate: NavigateFunction, fallback: string) {
-  if (typeof window.history.state?.idx === "number" && window.history.state.idx > 0)
-    navigate(-1);
+  if (canGoBack()) navigate(-1);
   else navigate(fallback);
 }

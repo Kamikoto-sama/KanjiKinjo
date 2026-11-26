@@ -645,6 +645,42 @@ test("two tabs can save corrections without losing either record", async ({
   ).toEqual(["2", "3"]);
 });
 
+test("Back is disabled when import, search, and word routes open in a new tab", async ({
+                                                                                         page,
+                                                                                         context,
+                                                                                       }) => {
+  const words: Snapshot["words"] = ["こうじょう", "こうば"].map(
+      (reading, index) => ({
+        wordId: `word-${index}`,
+        noteIds: [String(index)],
+        spelling: "工場",
+        reading,
+        ruby: [{ text: "工場", reading }],
+        translations: ["factory"],
+        match: "dictionary",
+      }),
+  );
+  await seed(page, {
+    collection: collection("Study"),
+    config,
+    snapshot: snapshot("Study", words),
+  });
+
+  for (const path of [
+    "/import",
+    "/search",
+    `/word?${new URLSearchParams({ spelling: "工場", reading: "こうじょう" })}`,
+    `/word?${new URLSearchParams({ spelling: "工場" })}`,
+  ]) {
+    const tab = await context.newPage();
+    await mockManifest(tab);
+    await tab.goto(path);
+    await expect(tab).toHaveURL(path);
+    await expect(tab.getByRole("button", { name: "Back", exact: true })).toBeDisabled();
+    await tab.close();
+  }
+});
+
 test("search Back, related-word pagination, swipe and menu focus work together", async ({
   page,
 }) => {
