@@ -43,6 +43,8 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
     kind: "account" | "file";
     trigger: HTMLButtonElement;
   } | null>(null);
+  const importedFromFile = status?.hasCollection && !status?.hasAnkiSession
+  const importedFromAnki = status?.hasCollection && status?.hasAnkiSession
 
   function cancelReplacement() {
     setPendingImport(null);
@@ -102,41 +104,32 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
                 Bring your deck into KanjiKinjo
               </h2>
               <p className="m-0 text-sm text-muted-foreground">
-                Connect AnkiWeb or choose a deck file to see your words and
-                their connections.
+                {status?.hasSnapshot
+                    ? "You have already imported a deck"
+                    : "Connect AnkiWeb or choose a deck file to see your words and their connections."
+                }
               </p>
             </div>
-            {status?.hasCollection && (
-              <Button
-                size="lg"
-                className="mb-6"
-                type="button"
-                disabled={busy}
-                onClick={() => navigate("/setup")}
-              >
-                Continue
-              </Button>
-            )}
             <Card>
               <CardHeader>
-                <h3 className="m-0 text-lg font-semibold">AnkiWeb</h3>
+                <h3 className="m-0 text-lg font-semibold">
+                  AnkiWeb
+                </h3>
                 <CardDescription>
                   {status?.hasAnkiSession ? (
                     <>
-                      Connected as{" "}
-                      <strong>{status.ankiAccount || "AnkiWeb account"}</strong>
-                      . Import your studied cards from AnkiWeb.
+                      Signed in as <strong>{status.ankiAccount || "[unknown account]"}</strong>
                     </>
                   ) : (
                     "Sign in to sync and import your studied cards from AnkiWeb."
                   )}
                 </CardDescription>
               </CardHeader>
-              <CardFooter className="justify-center">
+              <CardFooter className="flex-wrap justify-center gap-3">
                 <Button
                   size="lg"
                   type="button"
-                  variant="outline"
+                  variant={ !importedFromFile && !importedFromAnki ? "default" : "outline" }
                   disabled={busy}
                   onClick={(event) => requestAccountSwitch(event.currentTarget)}
                 >
@@ -144,6 +137,16 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
                     ? "Switch Account"
                     : "Sign in to AnkiWeb"}
                 </Button>
+                {importedFromAnki && (
+                  <Button
+                    size="lg"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => navigate("/setup")}
+                  >
+                    Continue
+                  </Button>
+                )}
               </CardFooter>
             </Card>
             <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
@@ -157,7 +160,7 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
                   Import deck directly from file
                 </h3>
                 <CardDescription>
-                  {status?.hasCollection && !status.hasAnkiSession && (
+                  {importedFromFile && (
                     <>
                       Current deck was imported from a file.
                       <br />
@@ -166,7 +169,7 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
                   Choose an Anki .apkg or .colpkg package with review history.
                 </CardDescription>
               </CardHeader>
-              <CardFooter className="justify-center">
+              <CardFooter className="flex-wrap justify-center gap-3">
                 <Button
                   ref={chooseFile}
                   size="lg"
@@ -192,6 +195,16 @@ export function ImportPage({ status, fallback, onReplace }: Props) {
                   accept=".apkg,.colpkg"
                   onChange={(event) => void importFile(event.target.files?.[0])}
                 />
+                {importedFromFile && (
+                  <Button
+                    size="lg"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => navigate("/setup")}
+                  >
+                    Continue
+                  </Button>
+                )}
               </CardFooter>
             </Card>
           </div>
