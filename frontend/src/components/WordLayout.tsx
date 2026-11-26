@@ -1,6 +1,7 @@
 import {
   ArrowLeftIcon,
   EllipsisIcon,
+  EyeOff,
   ImportIcon,
   Link2Icon,
   RefreshCwIcon,
@@ -155,6 +156,7 @@ export function WordLayout({
                     onCheckedChange={onShowUnstudiedChange}
                     onSelect={(event) => event.preventDefault()}
                 >
+                  <EyeOff className="absolute left-2" aria-hidden="true"/>
                   Show unstudied words
                 </DropdownMenuCheckboxItem>
                 <DropdownMenuItem onSelect={() => navigate("/import")}>
