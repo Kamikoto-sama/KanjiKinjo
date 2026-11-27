@@ -134,6 +134,7 @@ export function WordLayout({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 align="end"
+                className="word-menu"
                 onCloseAutoFocus={(event) => {
                   if (focusSearchOnClose.current) {
                     focusSearchOnClose.current = false;
