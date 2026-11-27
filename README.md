@@ -1,4 +1,8 @@
-# KanjiKinjo
+<p align="center">
+  <img src="frontend/public/icon.svg" alt="KanjiKinjo app icon" width="96" height="96">
+</p>
+
+<h1 align="center">KanjiKinjo</h1>
 
 A web app that helps you remember Japanese vocabulary by finding connections between words you’ve already reviewed in Anki. When a kanji or reading looks familiar, you can see which other words in your deck use it.
 
@@ -8,6 +12,14 @@ A web app that helps you remember Japanese vocabulary by finding connections bet
 - Explore words in your deck that share kanji, contain visually similar kanji, or have the same or similar readings.
 - Open a word’s page directly from an Anki card.
 - Offline use. Install as a web app in a supported browser and browse your last synced or imported deck offline after initial setup.
+
+## Mobile screenshots
+
+<p align="center">
+  <a href="docs/screenshots/mobile-import.png"><img src="docs/screenshots/mobile-import.png" alt="Import a deck from AnkiWeb or a local file" width="31%"></a>
+  <a href="docs/screenshots/mobile-search.png"><img src="docs/screenshots/mobile-search.png" alt="Search results with furigana and translations" width="31%"></a>
+  <a href="docs/screenshots/mobile-word.png"><img src="docs/screenshots/mobile-word.png" alt="Word page with tabs for kanji and reading relationships" width="31%"></a>
+</p>
 
 ## Quick start
 
